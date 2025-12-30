@@ -1,84 +1,133 @@
-use std::io::Write as _;
+use std::path::Path;
+use std::sync::Arc;
 
-use clap::Subcommand;
-use jj_cli::cli_util::{CommandHelper, RevisionArg};
-use jj_cli::command_error::{user_error, CommandError};
-use jj_cli::ui::Ui;
+use jj_lib::repo::Repo;
+use jj_lib::revset::{RevsetExpression, RevsetIteratorExt, SymbolResolverExtension};
+use jj_lib::settings::UserSettings;
+use jj_lib::workspace::{default_working_copy_factories, DefaultWorkspaceLoaderFactory, WorkspaceLoaderFactory};
+use jj_lib::repo::StoreFactories;
 
 use crate::config::JjaiConfig;
 use crate::diff::render_commit_patch;
+use crate::error::JjaiError;
 use crate::llm::generate_description_for_diff;
 
-#[derive(Subcommand, Clone, Debug)]
-pub enum AiCommand {
-    /// Generate a commit description using an LLM
-    #[command(name = "ai")]
-    Ai(AiDescribeArgs),
+pub struct DescribeResult {
+    pub description: String,
+    pub applied: bool,
 }
 
-#[derive(clap::Args, Clone, Debug)]
-pub struct AiDescribeArgs {
-    /// The revision to describe
-    #[arg(default_value = "@")]
-    pub revision: RevisionArg,
+pub fn run_describe(
+    revision: &str,
+    dry_run: bool,
+) -> Result<DescribeResult, JjaiError> {
+    let config = JjaiConfig::from_env()?;
 
-    /// Show the generated description without applying it
-    #[arg(long)]
-    pub dry_run: bool,
-}
+    let cwd = std::env::current_dir()
+        .map_err(|e| JjaiError::Workspace(format!("Failed to get current directory: {}", e)))?;
 
-pub fn run_ai_command(
-    ui: &mut Ui,
-    command_helper: &CommandHelper,
-    command: AiCommand,
-) -> Result<(), CommandError> {
-    match command {
-        AiCommand::Ai(args) => run_ai_describe(ui, command_helper, args),
-    }
-}
+    let settings = UserSettings::from_config(jj_lib::config::StackedConfig::empty())
+        .map_err(|e| JjaiError::Workspace(format!("Failed to load settings: {}", e)))?;
 
-fn run_ai_describe(
-    ui: &mut Ui,
-    command_helper: &CommandHelper,
-    args: AiDescribeArgs,
-) -> Result<(), CommandError> {
-    let config =
-        JjaiConfig::from_env().map_err(|e| user_error(format!("Configuration error: {}", e)))?;
+    let loader = DefaultWorkspaceLoaderFactory
+        .create(find_workspace_dir(&cwd)?)
+        .map_err(|e| JjaiError::Workspace(format!("Failed to create workspace loader: {}", e)))?;
 
-    let mut workspace_command = command_helper.workspace_helper(ui)?;
-    let commit = workspace_command.resolve_single_rev(ui, &args.revision)?;
+    let workspace = loader
+        .load(&settings, &StoreFactories::default(), &default_working_copy_factories())
+        .map_err(|e| JjaiError::Workspace(format!("Failed to load workspace: {}", e)))?;
 
-    if !commit.description().is_empty() && !args.dry_run {
-        writeln!(
-            ui.warning_default(),
-            "Commit already has a description, overwriting"
-        )?;
-    }
+    let repo = workspace
+        .repo_loader()
+        .load_at_head()
+        .map_err(|e| JjaiError::Workspace(format!("Failed to load repo: {}", e)))?;
 
-    let repo = workspace_command.repo().clone();
-    let diff = render_commit_patch(repo.as_ref(), &commit)
-        .map_err(|e| user_error(format!("Failed to render diff: {}", e)))?;
+    let commit = resolve_revision(&repo, &workspace, revision)?;
+
+    let diff = render_commit_patch(repo.as_ref(), &commit)?;
 
     if diff.trim().is_empty() {
-        writeln!(ui.status(), "No changes in commit, nothing to describe")?;
-        return Ok(());
+        return Ok(DescribeResult {
+            description: String::new(),
+            applied: false,
+        });
     }
 
-    let description = generate_description_for_diff(&config, &diff)
-        .map_err(|e| user_error(format!("LLM error: {}", e)))?;
+    let description = generate_description_for_diff(&config, &diff)?;
 
-    if args.dry_run {
-        writeln!(ui.stdout(), "{}", description)?;
-        return Ok(());
+    if dry_run {
+        return Ok(DescribeResult {
+            description,
+            applied: false,
+        });
     }
 
-    let mut tx = workspace_command.start_transaction();
-    tx.repo_mut()
+    let mut tx = repo.start_transaction();
+    let new_commit = tx
+        .repo_mut()
         .rewrite_commit(&commit)
         .set_description(&description)
-        .write()?;
-    tx.finish(ui, "ai describe".to_string())?;
+        .write()
+        .map_err(|e| JjaiError::Update(format!("Failed to write commit: {}", e)))?;
 
-    writeln!(ui.status(), "Generated description for commit")?;
-    Ok(())
+    tx.repo_mut()
+        .set_rewritten_commit(commit.id().clone(), new_commit.id().clone());
+
+    tx.repo_mut()
+        .rebase_descendants()
+        .map_err(|e| JjaiError::Update(format!("Failed to rebase descendants: {}", e)))?;
+
+    tx.commit("ai describe")
+        .map_err(|e| JjaiError::Update(format!("Failed to commit transaction: {}", e)))?;
+
+    Ok(DescribeResult {
+        description,
+        applied: true,
+    })
+}
+
+fn find_workspace_dir(start: &Path) -> Result<&Path, JjaiError> {
+    let mut current = start;
+    loop {
+        if current.join(".jj").is_dir() {
+            return Ok(current);
+        }
+        current = current
+            .parent()
+            .ok_or_else(|| JjaiError::Workspace("Not a jj repository (or any parent)".to_string()))?;
+    }
+}
+
+fn resolve_revision(
+    repo: &Arc<jj_lib::repo::ReadonlyRepo>,
+    workspace: &jj_lib::workspace::Workspace,
+    revision: &str,
+) -> Result<jj_lib::commit::Commit, JjaiError> {
+    let workspace_id = workspace.workspace_name().to_owned();
+    
+    let expression = if revision == "@" {
+        RevsetExpression::working_copy(workspace_id)
+    } else {
+        RevsetExpression::symbol(revision.to_string())
+    };
+
+    let extensions: &[Arc<dyn SymbolResolverExtension>] = &[];
+    let symbol_resolver = jj_lib::revset::SymbolResolver::new(repo.as_ref(), extensions);
+    
+    let resolved = expression
+        .resolve_user_expression(repo.as_ref(), &symbol_resolver)
+        .map_err(|e| JjaiError::Workspace(format!("Failed to resolve revision '{}': {}", revision, e)))?;
+
+    let revset = resolved
+        .evaluate(repo.as_ref())
+        .map_err(|e| JjaiError::Workspace(format!("Failed to evaluate revision '{}': {}", revision, e)))?;
+
+    let commit_id = revset
+        .iter()
+        .commits(repo.store())
+        .next()
+        .ok_or_else(|| JjaiError::Workspace(format!("Revision '{}' not found", revision)))?
+        .map_err(|e| JjaiError::Workspace(format!("Failed to get commit: {}", e)))?;
+
+    Ok(commit_id)
 }

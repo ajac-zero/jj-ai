@@ -1,10 +1,6 @@
-# jjai
+# jj-ai
 
-A [Jujutsu (jj)](https://github.com/jj-vcs/jj) extension that generates commit descriptions using an LLM.
-
-## How It Works
-
-`jj-ai` adds an `ai` subcommand to `jj` that generates commit descriptions using OpenAI's API based on the commit's diff.
+A standalone CLI tool that generates commit descriptions for [Jujutsu (jj)](https://github.com/jj-vcs/jj) repositories using an LLM.
 
 ## Installation
 
@@ -19,8 +15,6 @@ cargo build --release
 # Binary at target/release/jj-ai
 ```
 
-Ensure `jj-ai` is in your `PATH` so that `jj` can discover it.
-
 ## Configuration
 
 Set the following environment variables:
@@ -33,13 +27,15 @@ Set the following environment variables:
 
 ## Usage
 
+Run from within a jj repository:
+
 ```bash
 # Generate description for current commit
-jj ai
+jj-ai
 
 # Generate description for a specific revision
-jj ai abc123
+jj-ai abc123
 
 # Preview without applying
-jj ai --dry-run
+jj-ai --dry-run
 ```
