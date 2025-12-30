@@ -3,6 +3,10 @@ name = "jjai"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "jj-ai"
+path = "src/bin/jj-ai.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 jj-cli = { git = "https://github.com/jj-vcs/jj.git", package = "jj-cli" }
