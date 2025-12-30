@@ -1,10 +1,10 @@
 # jjai
 
-A [Jujutsu (jj)](https://github.com/jj-vcs/jj) wrapper that automatically generates commit descriptions using an LLM when commits are rewritten.
+A [Jujutsu (jj)](https://github.com/jj-vcs/jj) extension that generates commit descriptions using an LLM.
 
 ## How It Works
 
-`jjai` wraps the `jj` CLI transparently. When a command rewrites a commit (same `ChangeId`, new `CommitId`) and that commit has an empty description, `jjai` generates one using OpenAI's API based on the commit's diff.
+`jjai` adds an `ai describe` subcommand to `jj` that generates commit descriptions using OpenAI's API based on the commit's diff.
 
 ## Installation
 
@@ -26,28 +26,26 @@ Set the following environment variables:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | Yes | — | Your OpenAI API key |
-| `JJAI_ENABLED` | No | `true` | Set to `0` or `false` to disable |
 | `JJAI_MODEL` | No | `gpt-4o-mini` | OpenAI model to use |
 | `JJAI_MAX_TOKENS` | No | `256` | Max tokens for generated descriptions |
 
 ## Usage
 
-Use `jjai` as a drop-in replacement for `jj`:
+Use `jjai` alongside `jj` for AI-powered commit descriptions:
 
 ```bash
-# Instead of:
-jj new
+# Generate description for current commit
+jjai ai
 
-# Use:
-jjai new
-```
+# Generate description for a specific revision
+jjai ai abc123
 
-All `jj` commands work identically. When commits with empty descriptions are rewritten, `jjai` automatically fills them in.
+# Preview without applying
+jjai ai --dry-run
 
-To disable temporarily:
-
-```bash
-JJAI_ENABLED=0 jjai <command>
+# All standard jj commands work too
+jjai log
+jjai status
 ```
 
 ## Shell Alias (Optional)

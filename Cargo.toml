@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 jj-cli = { git = "https://github.com/jj-vcs/jj.git", package = "jj-cli" }
 jj-lib = { git = "https://github.com/jj-vcs/jj.git", package = "jj-lib" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }

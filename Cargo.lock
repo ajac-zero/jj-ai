@@ -2328,6 +2328,7 @@ version = "0.1.0"
 dependencies = [
  "async-openai",
  "bstr",
+ "clap",
  "futures 0.3.31",
  "itertools 0.13.0",
  "jj-cli",

@@ -1,5 +1,6 @@
 use std::process::ExitCode;
 
+use jj_cli::cli_util::CliRunner;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> ExitCode {
@@ -7,5 +8,8 @@ fn main() -> ExitCode {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    jjai::hook::create_runner().run().into()
+    CliRunner::init()
+        .add_subcommand(jjai::command::run_ai_command)
+        .run()
+        .into()
 }
