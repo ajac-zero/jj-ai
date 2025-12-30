@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::Command;
 use std::sync::Arc;
 
 use jj_lib::repo::Repo;
@@ -17,6 +18,20 @@ pub struct DescribeResult {
     pub applied: bool,
 }
 
+pub fn run_setup() -> Result<(), JjaiError> {
+    let output = Command::new("jj")
+        .args(&["config", "set", "--user", "aliases.ai", r#"["util", "exec", "--", "jj-ai"]"#])
+        .output()
+        .map_err(|e| JjaiError::Setup(format!("Failed to run jj config command: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(JjaiError::Setup(format!("jj config command failed: {}", stderr)));
+    }
+
+    Ok(())
+}
+
 pub fn run_describe(
     revision: &str,
     dry_run: bool,
@@ -29,8 +44,9 @@ pub fn run_describe(
     let settings = UserSettings::from_config(jj_lib::config::StackedConfig::empty())
         .map_err(|e| JjaiError::Workspace(format!("Failed to load settings: {}", e)))?;
 
+    let workspace_dir = find_workspace_dir(&cwd)?;
     let loader = DefaultWorkspaceLoaderFactory
-        .create(find_workspace_dir(&cwd)?)
+        .create(&workspace_dir)
         .map_err(|e| JjaiError::Workspace(format!("Failed to create workspace loader: {}", e)))?;
 
     let workspace = loader
@@ -86,15 +102,25 @@ pub fn run_describe(
     })
 }
 
-fn find_workspace_dir(start: &Path) -> Result<&Path, JjaiError> {
-    let mut current = start;
+fn find_workspace_dir(start: &Path) -> Result<std::path::PathBuf, JjaiError> {
+    // Check JJ_WORKSPACE_ROOT first (set by jj util exec)
+    if let Ok(workspace_root) = std::env::var("JJ_WORKSPACE_ROOT") {
+        let workspace_path = std::path::PathBuf::from(&workspace_root);
+        if workspace_path.join(".jj").is_dir() {
+            return Ok(workspace_path);
+        }
+    }
+    
+    // Fall back to searching upward from cwd
+    let mut current = start.to_path_buf();
     loop {
         if current.join(".jj").is_dir() {
             return Ok(current);
         }
         current = current
             .parent()
-            .ok_or_else(|| JjaiError::Workspace("Not a jj repository (or any parent)".to_string()))?;
+            .ok_or_else(|| JjaiError::Workspace("Not a jj repository (or any parent)".to_string()))?
+            .to_path_buf();
     }
 }
 

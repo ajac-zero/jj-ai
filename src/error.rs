@@ -22,4 +22,7 @@ pub enum JjaiError {
 
     #[error("Update error: {0}")]
     Update(String),
+
+    #[error("Setup error: {0}")]
+    Setup(String),
 }
