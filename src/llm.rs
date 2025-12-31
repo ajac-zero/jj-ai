@@ -1,11 +1,4 @@
-use async_openai::{
-    config::OpenAIConfig,
-    types::{
-        ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
-        CreateChatCompletionRequestArgs,
-    },
-    Client,
-};
+use orpheus::prelude::*;
 use thiserror::Error;
 
 use crate::config::JjaiConfig;
@@ -27,10 +20,6 @@ Keep the description under 200 words."#;
 const MAX_DIFF_CHARS: usize = 8000;
 
 pub fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Result<String, LlmError> {
-    pollster::block_on(generate_description_async(cfg, diff))
-}
-
-async fn generate_description_async(cfg: &JjaiConfig, diff: &str) -> Result<String, LlmError> {
     let truncated_diff = if diff.len() > MAX_DIFF_CHARS {
         format!(
             "{}...\n[diff truncated, {} more bytes]",
@@ -41,41 +30,27 @@ async fn generate_description_async(cfg: &JjaiConfig, diff: &str) -> Result<Stri
         diff.to_string()
     };
 
-    let config = OpenAIConfig::new().with_api_key(&cfg.api_key);
-    let client = Client::with_config(config);
+    let client = Orpheus::new(cfg.api_key.clone());
 
-    let request = CreateChatCompletionRequestArgs::default()
-        .model(&cfg.model)
-        .max_tokens(cfg.max_tokens)
-        .messages([
-            ChatCompletionRequestSystemMessageArgs::default()
-                .content(SYSTEM_PROMPT)
-                .build()
-                .map_err(|e| LlmError::Build(e.to_string()))?
-                .into(),
-            ChatCompletionRequestUserMessageArgs::default()
-                .content(format!(
-                    "Generate a commit description for this diff:\n\n```\n{}\n```",
-                    truncated_diff
-                ))
-                .build()
-                .map_err(|e| LlmError::Build(e.to_string()))?
-                .into(),
-        ])
-        .build()
-        .map_err(|e| LlmError::Build(e.to_string()))?;
+    let messages = vec![
+        Message::system(SYSTEM_PROMPT),
+        Message::user(format!(
+            "Generate a commit description for this diff:\n\n```\n{}\n```",
+            truncated_diff
+        )),
+    ];
 
     let response = client
-        .chat()
-        .create(request)
-        .await
+        .chat(&messages)
+        .model(&cfg.model)
+        .max_tokens(cfg.max_tokens as i32)
+        .send()
         .map_err(|e| LlmError::Api(e.to_string()))?;
 
     let description = response
-        .choices
-        .first()
-        .and_then(|c| c.message.content.clone())
-        .unwrap_or_default();
+        .content()
+        .map_err(|e| LlmError::Api(e.to_string()))?
+        .to_string();
 
     Ok(description.trim().to_string())
 }
