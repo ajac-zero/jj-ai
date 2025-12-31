@@ -19,7 +19,7 @@ Keep the description under 200 words."#;
 
 const MAX_DIFF_CHARS: usize = 8000;
 
-pub fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Result<String, LlmError> {
+pub async fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Result<String, LlmError> {
     let truncated_diff = if diff.len() > MAX_DIFF_CHARS {
         format!(
             "{}...\n[diff truncated, {} more bytes]",
@@ -30,7 +30,7 @@ pub fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Result<Str
         diff.to_string()
     };
 
-    let client = Orpheus::new(cfg.api_key.clone());
+    let client = AsyncOrpheus::new(cfg.api_key.clone());
 
     let messages = vec![
         Message::system(SYSTEM_PROMPT),
@@ -45,6 +45,7 @@ pub fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Result<Str
         .model(&cfg.model)
         .max_tokens(cfg.max_tokens as i32)
         .send()
+        .await
         .map_err(|e| LlmError::Api(e.to_string()))?;
 
     let description = response

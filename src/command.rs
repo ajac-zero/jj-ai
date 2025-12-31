@@ -7,6 +7,7 @@ use jj_lib::revset::{RevsetExpression, RevsetIteratorExt, SymbolResolverExtensio
 use jj_lib::settings::UserSettings;
 use jj_lib::workspace::{default_working_copy_factories, DefaultWorkspaceLoaderFactory, WorkspaceLoaderFactory};
 use jj_lib::repo::StoreFactories;
+use pollster::FutureExt;
 
 use crate::config::JjaiConfig;
 use crate::diff::render_commit_patch;
@@ -69,7 +70,7 @@ pub fn run_describe(
         });
     }
 
-    let description = generate_description_for_diff(&config, &diff)?;
+    let description = generate_description_for_diff(&config, &diff).block_on()?;
 
     if dry_run {
         return Ok(DescribeResult {
@@ -110,7 +111,7 @@ fn find_workspace_dir(start: &Path) -> Result<std::path::PathBuf, JjaiError> {
             return Ok(workspace_path);
         }
     }
-    
+
     // Fall back to searching upward from cwd
     let mut current = start.to_path_buf();
     loop {
@@ -130,7 +131,7 @@ fn resolve_revision(
     revision: &str,
 ) -> Result<jj_lib::commit::Commit, JjaiError> {
     let workspace_id = workspace.workspace_name().to_owned();
-    
+
     let expression = if revision == "@" {
         RevsetExpression::working_copy(workspace_id)
     } else {
@@ -139,7 +140,7 @@ fn resolve_revision(
 
     let extensions: &[Arc<dyn SymbolResolverExtension>] = &[];
     let symbol_resolver = jj_lib::revset::SymbolResolver::new(repo.as_ref(), extensions);
-    
+
     let resolved = expression
         .resolve_user_expression(repo.as_ref(), &symbol_resolver)
         .map_err(|e| JjaiError::Workspace(format!("Failed to resolve revision '{}': {}", revision, e)))?;
