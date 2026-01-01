@@ -2,19 +2,17 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum JjaiConfigError {
-    #[error("missing OPENROUTER_API_KEY environment variable\nhint: set it with `export OPENROUTER_API_KEY=your_key`")]
-    MissingApiKey,
-}
 
 #[derive(Error, Debug)]
 pub enum JjaiError {
-    #[error(transparent)]
-    Config(#[from] JjaiConfigError),
+    #[error("missing OPENROUTER_API_KEY environment variable")]
+    MissingApiKey,
 
-    #[error(transparent)]
-    Llm(#[from] crate::llm::LlmError),
+    #[error("LLM API request failed: {0}")]
+    LlmApi(#[from] orpheus::Error),
+
+    #[error("failed to parse LLM response: {0}")]
+    ParseResponse(#[from] serde_json::Error),
 
     #[error("not a jj repository (or any parent up to root)")]
     NotARepository,
@@ -54,4 +52,7 @@ pub enum JjaiError {
 
     #[error("jj setup failed: {0}")]
     Setup(String),
+
+    #[error("JJ_WORKSPACE_ROOT is missing")]
+    MissingJjWorkspace
 }
