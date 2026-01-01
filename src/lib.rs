@@ -3,3 +3,6 @@ pub mod config;
 pub mod diff;
 pub mod error;
 pub mod llm;
+
+#[cfg(test)]
+mod tests;
