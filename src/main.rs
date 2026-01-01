@@ -40,7 +40,8 @@ enum Command {
     Setup,
 }
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let args = Args::parse();
 
     match args.command {
@@ -58,7 +59,7 @@ fn main() -> ExitCode {
             }
         }
         Command::Describe { revision, dry_run } => {
-            match jj_ai::command::run_describe(&revision, dry_run) {
+            match jj_ai::command::run_describe(&revision, dry_run).await {
                 Ok(result) => {
                     if result.description.is_empty() {
                         eprintln!("No changes in commit, nothing to describe");
@@ -79,7 +80,7 @@ fn main() -> ExitCode {
             }
         }
         Command::Backprop { revision, dry_run, limit } => {
-            match jj_ai::command::run_backprop(&revision, dry_run, limit) {
+            match jj_ai::command::run_backprop(&revision, dry_run, limit).await {
                 Ok(count) => {
                     if count == 0 {
                         eprintln!("No commits with empty descriptions found");

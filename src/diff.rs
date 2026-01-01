@@ -12,7 +12,7 @@ use tokio::io::AsyncReadExt;
 
 use crate::error::JjaiError;
 
-pub fn render_commit_patch<R: Repo>(repo: &R, commit: &Commit) -> Result<String, JjaiError> {
+pub async fn render_commit_patch<R: Repo>(repo: &R, commit: &Commit) -> Result<String, JjaiError> {
     let parents: Vec<_> = commit
         .parents()
         .collect::<Result<Vec<_>, _>>()
@@ -30,7 +30,7 @@ pub fn render_commit_patch<R: Repo>(repo: &R, commit: &Commit) -> Result<String,
 
     let diff_stream = parent_tree.diff_stream(&commit_tree, &EverythingMatcher);
 
-    let entries: Vec<_> = pollster::block_on(async { diff_stream.collect().await });
+    let entries: Vec<_> = diff_stream.collect().await;
 
     for entry in entries {
         let path = entry.path;
@@ -46,8 +46,8 @@ pub fn render_commit_patch<R: Repo>(repo: &R, commit: &Commit) -> Result<String,
         )
         .map_err(|e| JjaiError::Diff(e.to_string()))?;
 
-        let before_content = get_content(repo.store(), &diff_values.before)?;
-        let after_content = get_content(repo.store(), &diff_values.after)?;
+        let before_content = get_content(repo.store(), &diff_values.before).await?;
+        let after_content = get_content(repo.store(), &diff_values.after).await?;
 
         let hunks = diff([before_content.as_bytes(), after_content.as_bytes()]);
 
@@ -82,7 +82,7 @@ pub fn render_commit_patch<R: Repo>(repo: &R, commit: &Commit) -> Result<String,
     Ok(output)
 }
 
-fn get_content(
+async fn get_content(
     store: &Arc<jj_lib::store::Store>,
     value: &MergedTreeValue,
 ) -> Result<String, JjaiError> {
@@ -92,20 +92,17 @@ fn get_content(
 
     let resolved = value.as_resolved();
     if let Some(Some(TreeValue::File { id, .. })) = resolved {
-        let bytes = pollster::block_on(async {
-            let mut reader = store
-                .read_file(&jj_lib::repo_path::RepoPath::root(), id)
-                .await
-                .map_err(|e| JjaiError::Diff(e.to_string()))?;
+        let mut reader = store
+            .read_file(&jj_lib::repo_path::RepoPath::root(), id)
+            .await
+            .map_err(|e| JjaiError::Diff(e.to_string()))?;
 
-            let mut buf = Vec::new();
-            AsyncReadExt::read_to_end(&mut reader, &mut buf)
-                .await
-                .map_err(|e| JjaiError::Diff(e.to_string()))?;
-            Ok::<_, JjaiError>(buf)
-        })?;
+        let mut buf = Vec::new();
+        AsyncReadExt::read_to_end(&mut reader, &mut buf)
+            .await
+            .map_err(|e| JjaiError::Diff(e.to_string()))?;
 
-        Ok(String::from_utf8_lossy(&bytes).to_string())
+        Ok(String::from_utf8_lossy(&buf).to_string())
     } else {
         Ok(String::new())
     }

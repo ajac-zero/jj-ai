@@ -5,11 +5,11 @@ use crate::config::JjaiConfig;
 
 #[derive(Error, Debug)]
 pub enum LlmError {
-    #[error("API error: {0}")]
-    Api(String),
+    #[error("LLM API request failed: {0}\nhint: check your OPENROUTER_API_KEY and network connection")]
+    Request(String),
 
-    #[error("Failed to build request: {0}")]
-    Build(String),
+    #[error("LLM returned an invalid response: {0}")]
+    InvalidResponse(String),
 }
 
 const SYSTEM_PROMPT: &str = r#"You are an assistant that writes concise, informative commit descriptions based on code diffs.
@@ -40,18 +40,32 @@ pub async fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Resu
         )),
     ];
 
+    let message_format = Format::json("message")
+        .with_schema(|schema| {
+            schema
+                .property("message", Param::string().description("The commit message"))
+                .required(["message"])
+        })
+        .build();
+
     let response = client
         .chat(&messages)
         .model(&cfg.model)
         .max_tokens(cfg.max_tokens as i32)
+        .response_format(message_format)
         .send()
         .await
-        .map_err(|e| LlmError::Api(e.to_string()))?;
-
-    let description = response
+        .map_err(|e| LlmError::Request(e.to_string()))?
         .content()
-        .map_err(|e| LlmError::Api(e.to_string()))?
+        .map_err(|e| LlmError::InvalidResponse(e.to_string()))?
         .to_string();
+
+    let value = serde_json::from_str::<serde_json::Value>(&response)
+        .map_err(|e| LlmError::InvalidResponse(e.to_string()))?;
+
+    let description = value["message"]
+        .as_str()
+        .ok_or_else(|| LlmError::InvalidResponse("Missing 'message' field".to_string()))?;
 
     Ok(description.trim().to_string())
 }

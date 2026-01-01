@@ -1,14 +1,14 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
+use jj_lib::config::{ConfigSource, StackedConfig};
 use jj_lib::object_id::ObjectId;
 use jj_lib::repo::Repo;
 use jj_lib::revset::{RevsetExpression, RevsetIteratorExt, SymbolResolverExtension};
 use jj_lib::settings::UserSettings;
 use jj_lib::workspace::{default_working_copy_factories, DefaultWorkspaceLoaderFactory, WorkspaceLoaderFactory};
 use jj_lib::repo::StoreFactories;
-use pollster::FutureExt;
 
 use crate::config::JjaiConfig;
 use crate::diff::render_commit_patch;
@@ -24,45 +24,49 @@ pub fn run_setup() -> Result<(), JjaiError> {
     let output = Command::new("jj")
         .args(&["config", "set", "--user", "aliases.ai", r#"["util", "exec", "--", "jj-ai"]"#])
         .output()
-        .map_err(|e| JjaiError::Setup(format!("Failed to run jj config command: {}", e)))?;
+        .map_err(|e| JjaiError::Setup(format!("failed to run jj config: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(JjaiError::Setup(format!("jj config command failed: {}", stderr)));
+        return Err(JjaiError::Setup(format!("jj config failed: {}", stderr.trim())));
     }
 
     Ok(())
 }
 
-pub fn run_describe(
+pub async fn run_describe(
     revision: &str,
     dry_run: bool,
 ) -> Result<DescribeResult, JjaiError> {
     let config = JjaiConfig::from_env()?;
 
-    let cwd = std::env::current_dir()
-        .map_err(|e| JjaiError::Workspace(format!("Failed to get current directory: {}", e)))?;
+    let cwd = std::env::current_dir().map_err(JjaiError::CurrentDir)?;
 
-    let settings = UserSettings::from_config(jj_lib::config::StackedConfig::empty())
-        .map_err(|e| JjaiError::Workspace(format!("Failed to load settings: {}", e)))?;
+    let settings = load_jj_settings()?;
 
     let workspace_dir = find_workspace_dir(&cwd)?;
     let loader = DefaultWorkspaceLoaderFactory
         .create(&workspace_dir)
-        .map_err(|e| JjaiError::Workspace(format!("Failed to create workspace loader: {}", e)))?;
+        .map_err(|e| JjaiError::WorkspaceOpen {
+            path: workspace_dir.clone(),
+            reason: e.to_string(),
+        })?;
 
     let workspace = loader
         .load(&settings, &StoreFactories::default(), &default_working_copy_factories())
-        .map_err(|e| JjaiError::Workspace(format!("Failed to load workspace: {}", e)))?;
+        .map_err(|e| JjaiError::WorkspaceOpen {
+            path: workspace_dir.clone(),
+            reason: e.to_string(),
+        })?;
 
     let repo = workspace
         .repo_loader()
         .load_at_head()
-        .map_err(|e| JjaiError::Workspace(format!("Failed to load repo: {}", e)))?;
+        .map_err(|e| JjaiError::RepoLoad(e.to_string()))?;
 
     let commit = resolve_revision(&repo, &workspace, revision)?;
 
-    let diff = render_commit_patch(repo.as_ref(), &commit)?;
+    let diff = render_commit_patch(repo.as_ref(), &commit).await?;
 
     if diff.trim().is_empty() {
         return Ok(DescribeResult {
@@ -71,7 +75,7 @@ pub fn run_describe(
         });
     }
 
-    let description = generate_description_for_diff(&config, &diff).block_on()?;
+    let description = generate_description_for_diff(&config, &diff).await?;
 
     if dry_run {
         return Ok(DescribeResult {
@@ -86,17 +90,17 @@ pub fn run_describe(
         .rewrite_commit(&commit)
         .set_description(&description)
         .write()
-        .map_err(|e| JjaiError::Update(format!("Failed to write commit: {}", e)))?;
+        .map_err(|e| JjaiError::CommitWrite(e.to_string()))?;
 
     tx.repo_mut()
         .set_rewritten_commit(commit.id().clone(), new_commit.id().clone());
 
     tx.repo_mut()
         .rebase_descendants()
-        .map_err(|e| JjaiError::Update(format!("Failed to rebase descendants: {}", e)))?;
+        .map_err(|e| JjaiError::RebaseDescendants(e.to_string()))?;
 
     tx.commit("ai describe")
-        .map_err(|e| JjaiError::Update(format!("Failed to commit transaction: {}", e)))?;
+        .map_err(|e| JjaiError::TransactionCommit(e.to_string()))?;
 
     Ok(DescribeResult {
         description,
@@ -104,32 +108,36 @@ pub fn run_describe(
     })
 }
 
-pub fn run_backprop(
+pub async fn run_backprop(
     revision: &str,
     dry_run: bool,
     limit: Option<usize>,
 ) -> Result<usize, JjaiError> {
     let config = JjaiConfig::from_env()?;
 
-    let cwd = std::env::current_dir()
-        .map_err(|e| JjaiError::Workspace(format!("Failed to get current directory: {}", e)))?;
+    let cwd = std::env::current_dir().map_err(JjaiError::CurrentDir)?;
 
-    let settings = UserSettings::from_config(jj_lib::config::StackedConfig::empty())
-        .map_err(|e| JjaiError::Workspace(format!("Failed to load settings: {}", e)))?;
+    let settings = load_jj_settings()?;
 
     let workspace_dir = find_workspace_dir(&cwd)?;
     let loader = DefaultWorkspaceLoaderFactory
         .create(&workspace_dir)
-        .map_err(|e| JjaiError::Workspace(format!("Failed to create workspace loader: {}", e)))?;
+        .map_err(|e| JjaiError::WorkspaceOpen {
+            path: workspace_dir.clone(),
+            reason: e.to_string(),
+        })?;
 
     let workspace = loader
         .load(&settings, &StoreFactories::default(), &default_working_copy_factories())
-        .map_err(|e| JjaiError::Workspace(format!("Failed to load workspace: {}", e)))?;
+        .map_err(|e| JjaiError::WorkspaceOpen {
+            path: workspace_dir.clone(),
+            reason: e.to_string(),
+        })?;
 
     let mut repo = workspace
         .repo_loader()
         .load_at_head()
-        .map_err(|e| JjaiError::Workspace(format!("Failed to load repo: {}", e)))?;
+        .map_err(|e| JjaiError::RepoLoad(e.to_string()))?;
 
     let start_commit = resolve_revision(&repo, &workspace, revision)?;
 
@@ -143,7 +151,7 @@ pub fn run_backprop(
         }
 
         if current.description().trim().is_empty() && !current.parent_ids().is_empty() {
-            let diff = render_commit_patch(repo.as_ref(), &current)?;
+            let diff = render_commit_patch(repo.as_ref(), &current).await?;
             if !diff.trim().is_empty() {
                 commits_to_describe.push((current.id().clone(), diff));
             }
@@ -159,7 +167,7 @@ pub fn run_backprop(
         current = repo
             .store()
             .get_commit(&parent_ids[0])
-            .map_err(|e| JjaiError::Workspace(format!("Failed to get parent commit: {}", e)))?;
+            .map_err(|e| JjaiError::CommitGet(e.to_string()))?;
     }
 
     if commits_to_describe.is_empty() {
@@ -170,7 +178,7 @@ pub fn run_backprop(
 
     let mut count = 0;
     for (commit_id, diff) in commits_to_describe {
-        let description = generate_description_for_diff(&config, &diff).block_on()?;
+        let description = generate_description_for_diff(&config, &diff).await?;
 
         if dry_run {
             let short_id = commit_id.hex()[..12].to_string();
@@ -181,7 +189,7 @@ pub fn run_backprop(
             let commit = repo
                 .store()
                 .get_commit(&commit_id)
-                .map_err(|e| JjaiError::Workspace(format!("Failed to get commit: {}", e)))?;
+                .map_err(|e| JjaiError::CommitGet(e.to_string()))?;
 
             let mut tx = repo.start_transaction();
             let new_commit = tx
@@ -189,18 +197,18 @@ pub fn run_backprop(
                 .rewrite_commit(&commit)
                 .set_description(&description)
                 .write()
-                .map_err(|e| JjaiError::Update(format!("Failed to write commit: {}", e)))?;
+                .map_err(|e| JjaiError::CommitWrite(e.to_string()))?;
 
             tx.repo_mut()
                 .set_rewritten_commit(commit.id().clone(), new_commit.id().clone());
 
             tx.repo_mut()
                 .rebase_descendants()
-                .map_err(|e| JjaiError::Update(format!("Failed to rebase descendants: {}", e)))?;
+                .map_err(|e| JjaiError::RebaseDescendants(e.to_string()))?;
 
             repo = tx
                 .commit("ai backprop")
-                .map_err(|e| JjaiError::Update(format!("Failed to commit transaction: {}", e)))?;
+                .map_err(|e| JjaiError::TransactionCommit(e.to_string()))?;
         }
 
         count += 1;
@@ -209,8 +217,41 @@ pub fn run_backprop(
     Ok(count)
 }
 
+fn load_jj_settings() -> Result<UserSettings, JjaiError> {
+    let mut config = StackedConfig::with_defaults();
+
+    if let Some(home) = dirs::home_dir() {
+        let home_config = home.join(".jjconfig.toml");
+        if home_config.exists() {
+            let _ = config.load_file(ConfigSource::User, home_config);
+        }
+    }
+
+    if let Some(config_dir) = dirs::config_dir() {
+        let jj_config = config_dir.join("jj").join("config.toml");
+        if jj_config.exists() {
+            let _ = config.load_file(ConfigSource::User, jj_config);
+        }
+
+        let jj_conf_d = config_dir.join("jj").join("conf.d");
+        if jj_conf_d.is_dir() {
+            let _ = config.load_dir(ConfigSource::User, jj_conf_d);
+        }
+    }
+
+    if let Ok(jj_config_path) = std::env::var("JJ_CONFIG") {
+        let path = PathBuf::from(&jj_config_path);
+        if path.is_file() {
+            let _ = config.load_file(ConfigSource::User, path);
+        } else if path.is_dir() {
+            let _ = config.load_dir(ConfigSource::User, path);
+        }
+    }
+
+    UserSettings::from_config(config).map_err(|e| JjaiError::Settings(e.to_string()))
+}
+
 fn find_workspace_dir(start: &Path) -> Result<std::path::PathBuf, JjaiError> {
-    // Check JJ_WORKSPACE_ROOT first (set by jj util exec)
     if let Ok(workspace_root) = std::env::var("JJ_WORKSPACE_ROOT") {
         let workspace_path = std::path::PathBuf::from(&workspace_root);
         if workspace_path.join(".jj").is_dir() {
@@ -218,7 +259,6 @@ fn find_workspace_dir(start: &Path) -> Result<std::path::PathBuf, JjaiError> {
         }
     }
 
-    // Fall back to searching upward from cwd
     let mut current = start.to_path_buf();
     loop {
         if current.join(".jj").is_dir() {
@@ -226,7 +266,7 @@ fn find_workspace_dir(start: &Path) -> Result<std::path::PathBuf, JjaiError> {
         }
         current = current
             .parent()
-            .ok_or_else(|| JjaiError::Workspace("Not a jj repository (or any parent)".to_string()))?
+            .ok_or(JjaiError::NotARepository)?
             .to_path_buf();
     }
 }
@@ -249,18 +289,26 @@ fn resolve_revision(
 
     let resolved = expression
         .resolve_user_expression(repo.as_ref(), &symbol_resolver)
-        .map_err(|e| JjaiError::Workspace(format!("Failed to resolve revision '{}': {}", revision, e)))?;
+        .map_err(|e| JjaiError::RevisionResolve {
+            revision: revision.to_string(),
+            reason: e.to_string(),
+        })?;
 
     let revset = resolved
         .evaluate(repo.as_ref())
-        .map_err(|e| JjaiError::Workspace(format!("Failed to evaluate revision '{}': {}", revision, e)))?;
+        .map_err(|e| JjaiError::RevisionResolve {
+            revision: revision.to_string(),
+            reason: e.to_string(),
+        })?;
 
     let commit_id = revset
         .iter()
         .commits(repo.store())
         .next()
-        .ok_or_else(|| JjaiError::Workspace(format!("Revision '{}' not found", revision)))?
-        .map_err(|e| JjaiError::Workspace(format!("Failed to get commit: {}", e)))?;
+        .ok_or_else(|| JjaiError::RevisionNotFound {
+            revision: revision.to_string(),
+        })?
+        .map_err(|e| JjaiError::CommitGet(e.to_string()))?;
 
     Ok(commit_id)
 }
