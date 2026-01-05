@@ -18,7 +18,7 @@ pub async fn run_backprop(
 ) -> Result<usize, JjaiError> {
     let stacked_config = load_stacked_config()?;
     let workspace_dir = find_workspace_dir()?;
-    let cfg = JjaiConfig::from_stacked_config(&stacked_config, workspace_dir.clone())?;
+    let cfg = JjaiConfig::from_stacked_config(&stacked_config)?;
     let settings = UserSettings::from_config(stacked_config).map_err(|e| JjaiError::Settings(e.to_string()))?;
     let loader = DefaultWorkspaceLoaderFactory
         .create(&workspace_dir)
