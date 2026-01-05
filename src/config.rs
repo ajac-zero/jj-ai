@@ -1,5 +1,5 @@
 use crate::error::JjaiError;
-use std::env;
+use std::{env, str::FromStr};
 
 pub struct JjaiConfig {
     api_key: String,
@@ -41,8 +41,7 @@ impl JjaiConfig {
         self.max_tokens.into()
     }
 
-
-    pub fn get_workspace_root(&self) -> &str {
-        self.workspace_root.as_ref()
+    pub fn get_workspace_root(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from_str(&self.workspace_root).expect("valid path")
     }
 }

@@ -37,29 +37,16 @@ enum Command {
         #[arg(long, short)]
         limit: Option<usize>,
     },
-    /// Set up jj-ai as a jj subcommand
-    Setup,
 }
 
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = Args::parse();
-    let cfg = JjaiConfig::from_env().map_err(|_| ExitCode::FAILURE).unwrap();
+    let cfg = JjaiConfig::from_env().map_err(|e| {
+        println!("{e}")
+    }).unwrap();
 
     match args.command {
-        Command::Setup => {
-            match jj_ai::command::run_setup() {
-                Ok(_) => {
-                    println!("Successfully configured jj-ai as a jj subcommand");
-                    println!("You can now use: jj ai describe [revision] [--dry-run]");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    ExitCode::FAILURE
-                }
-            }
-        }
         Command::Describe { revision, dry_run } => {
             match jj_ai::command::run_describe(cfg, &revision, dry_run).await {
                 Ok(result) => {
