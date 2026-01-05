@@ -12,6 +12,8 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Configure jj-ai as a jj subcommand alias
+    Setup,
     /// Generate a commit description using an LLM
     Describe {
         /// The revision to describe
@@ -42,6 +44,16 @@ enum Command {
 async fn main() -> ExitCode {
     let args = Args::parse();
 
+    if matches!(args.command, Command::Setup) {
+        return match jj_ai::command::run_setup() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     let ctx = match jj_ai::CommandContext::load() {
         Ok(ctx) => ctx,
         Err(e) => {
@@ -51,6 +63,7 @@ async fn main() -> ExitCode {
     };
 
     match args.command {
+        Command::Setup => unreachable!(),
         Command::Describe { revision, dry_run } => {
             match jj_ai::command::run_describe(ctx, &revision, dry_run).await {
                 Ok(result) => {

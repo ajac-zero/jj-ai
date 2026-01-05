@@ -1,8 +1,10 @@
-pub(crate) mod describe;
 pub(crate) mod backprop;
+pub(crate) mod describe;
+pub(crate) mod setup;
 
-pub use describe::run_describe;
 pub use backprop::run_backprop;
+pub use describe::run_describe;
+pub use setup::run_setup;
 
 use std::path::PathBuf;
 use std::sync::Arc;
