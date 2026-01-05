@@ -42,9 +42,17 @@ enum Command {
 async fn main() -> ExitCode {
     let args = Args::parse();
 
+    let ctx = match jj_ai::CommandContext::load() {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return ExitCode::FAILURE;
+        }
+    };
+
     match args.command {
         Command::Describe { revision, dry_run } => {
-            match jj_ai::command::run_describe(&revision, dry_run).await {
+            match jj_ai::command::run_describe(ctx, &revision, dry_run).await {
                 Ok(result) => {
                     if result.description.is_empty() {
                         eprintln!("No changes in commit, nothing to describe");
@@ -65,7 +73,7 @@ async fn main() -> ExitCode {
             }
         }
         Command::Backprop { revision, dry_run, limit } => {
-            match jj_ai::command::run_backprop(&revision, dry_run, limit).await {
+            match jj_ai::command::run_backprop(ctx, &revision, dry_run, limit).await {
                 Ok(count) => {
                     if count == 0 {
                         eprintln!("No commits with empty descriptions found");

@@ -1,45 +1,21 @@
-use super::{load_stacked_config, resolve_revision, find_workspace_dir};
+use super::CommandContext;
 
 use jj_lib::object_id::ObjectId;
 use jj_lib::repo::Repo;
-use jj_lib::settings::UserSettings;
-use jj_lib::workspace::{default_working_copy_factories, DefaultWorkspaceLoaderFactory, WorkspaceLoaderFactory};
-use jj_lib::repo::StoreFactories;
 
-use crate::config::JjaiConfig;
 use crate::diff::render_commit_patch;
 use crate::error::JjaiError;
 use crate::llm::generate_description_for_diff;
 
 pub async fn run_backprop(
+    ctx: CommandContext,
     revision: &str,
     dry_run: bool,
     limit: Option<usize>,
 ) -> Result<usize, JjaiError> {
-    let stacked_config = load_stacked_config()?;
-    let workspace_dir = find_workspace_dir()?;
-    let cfg = JjaiConfig::from_stacked_config(&stacked_config)?;
-    let settings = UserSettings::from_config(stacked_config).map_err(|e| JjaiError::Settings(e.to_string()))?;
-    let loader = DefaultWorkspaceLoaderFactory
-        .create(&workspace_dir)
-        .map_err(|e| JjaiError::WorkspaceOpen {
-            path: workspace_dir.clone(),
-            reason: e.to_string(),
-        })?;
+    let start_commit = ctx.resolve_revision(revision)?;
 
-    let workspace = loader
-        .load(&settings, &StoreFactories::default(), &default_working_copy_factories())
-        .map_err(|e| JjaiError::WorkspaceOpen {
-            path: workspace_dir.clone(),
-            reason: e.to_string(),
-        })?;
-
-    let mut repo = workspace
-        .repo_loader()
-        .load_at_head()
-        .map_err(|e| JjaiError::RepoLoad(e.to_string()))?;
-
-    let start_commit = resolve_revision(&repo, &workspace, revision)?;
+    let mut repo = ctx.repo;
 
     let mut commits_to_describe = Vec::new();
     let mut current = start_commit;
@@ -78,7 +54,7 @@ pub async fn run_backprop(
 
     let mut count = 0;
     for (commit_id, diff) in commits_to_describe {
-        let description = generate_description_for_diff(&cfg, &diff).await?;
+        let description = generate_description_for_diff(&ctx.cfg, &diff).await?;
 
         if dry_run {
             let short_id = commit_id.hex()[..12].to_string();

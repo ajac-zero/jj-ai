@@ -8,10 +8,58 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use jj_lib::config::{ConfigLayer, ConfigSource, StackedConfig};
-use jj_lib::repo::Repo;
+use jj_lib::repo::{ReadonlyRepo, Repo};
 use jj_lib::revset::{RevsetExpression, RevsetIteratorExt, SymbolResolverExtension};
+use jj_lib::settings::UserSettings;
+use jj_lib::workspace::{default_working_copy_factories, DefaultWorkspaceLoaderFactory, Workspace, WorkspaceLoaderFactory};
+use jj_lib::repo::StoreFactories;
 
+use crate::config::JjaiConfig;
 use crate::error::JjaiError;
+
+pub struct CommandContext {
+    pub cfg: JjaiConfig,
+    pub workspace: Workspace,
+    pub repo: Arc<ReadonlyRepo>,
+}
+
+impl CommandContext {
+    pub fn load() -> Result<Self, JjaiError> {
+        let stacked_config = load_stacked_config()?;
+        let workspace_dir = std::env::var("JJ_WORKSPACE_ROOT")
+            .map(PathBuf::from)
+            .map_err(|_| JjaiError::MissingJjWorkspace)?;
+
+        let cfg = JjaiConfig::from_stacked_config(&stacked_config)?;
+        let settings = UserSettings::from_config(stacked_config)
+            .map_err(|e| JjaiError::Settings(e.to_string()))?;
+
+        let loader = DefaultWorkspaceLoaderFactory
+            .create(&workspace_dir)
+            .map_err(|e| JjaiError::WorkspaceOpen {
+                path: workspace_dir.clone(),
+                reason: e.to_string(),
+            })?;
+
+        let workspace = loader
+            .load(&settings, &StoreFactories::default(), &default_working_copy_factories())
+            .map_err(|e| JjaiError::WorkspaceOpen {
+                path: workspace_dir,
+                reason: e.to_string(),
+            })?;
+
+        let repo = workspace
+            .repo_loader()
+            .load_at_head()
+            .map_err(|e| JjaiError::RepoLoad(e.to_string()))?;
+
+        Ok(Self { cfg, workspace, repo })
+    }
+
+    pub fn resolve_revision(&self, revision: &str) -> Result<jj_lib::commit::Commit, JjaiError> {
+        resolve_revision(&self.repo, &self.workspace, revision)
+    }
+}
 
 fn discover_user_config_paths() -> Vec<PathBuf> {
     if let Ok(jj_config) = std::env::var("JJ_CONFIG") {
@@ -88,13 +136,6 @@ pub fn load_stacked_config() -> Result<StackedConfig, JjaiError> {
     });
 
     Ok(config)
-}
-
-fn find_workspace_dir() -> Result<std::path::PathBuf, JjaiError> {
-    match std::env::var("JJ_WORKSPACE_ROOT") {
-        Ok(workspace_root) => Ok(std::path::PathBuf::from(&workspace_root)),
-        Err(_) => Err(JjaiError::MissingJjWorkspace)
-    }
 }
 
 fn resolve_revision(
