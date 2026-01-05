@@ -4,47 +4,24 @@ pub(crate) mod backprop;
 pub use describe::run_describe;
 pub use backprop::run_backprop;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use jj_lib::config::{ConfigSource, StackedConfig};
 use jj_lib::repo::Repo;
 use jj_lib::revset::{RevsetExpression, RevsetIteratorExt, SymbolResolverExtension};
+use jj_cli::config::{config_from_environment, default_config_layers, ConfigEnv};
 
 use crate::error::JjaiError;
 
-pub fn load_stacked_config() -> StackedConfig {
-    let mut config = StackedConfig::with_defaults();
+pub fn load_stacked_config() -> Result<StackedConfig, JjaiError> {
+    let config_env = ConfigEnv::from_environment();
+    let mut raw_config = config_from_environment(default_config_layers());
 
-    if let Some(home) = dirs::home_dir() {
-        let home_config = home.join(".jjconfig.toml");
-        if home_config.exists() {
-            let _ = config.load_file(ConfigSource::User, home_config);
-        }
-    }
+    config_env
+        .reload_user_config(&mut raw_config)
+        .map_err(|e| JjaiError::ConfigGet(e.to_string()))?;
 
-    if let Some(config_dir) = dirs::config_dir() {
-        let jj_config = config_dir.join("jj").join("config.toml");
-        if jj_config.exists() {
-            let _ = config.load_file(ConfigSource::User, jj_config);
-        }
-
-        let jj_conf_d = config_dir.join("jj").join("conf.d");
-        if jj_conf_d.is_dir() {
-            let _ = config.load_dir(ConfigSource::User, jj_conf_d);
-        }
-    }
-
-    if let Ok(jj_config_path) = std::env::var("JJ_CONFIG") {
-        let path = PathBuf::from(&jj_config_path);
-        if path.is_file() {
-            let _ = config.load_file(ConfigSource::User, path);
-        } else if path.is_dir() {
-            let _ = config.load_dir(ConfigSource::User, path);
-        }
-    }
-
-    config.add_layer({
+    raw_config.as_mut().add_layer({
         let mut layer = jj_lib::config::ConfigLayer::empty(ConfigSource::EnvOverrides);
 
         if let Ok(value) = std::env::var("OPENROUTER_API_KEY") {
@@ -60,7 +37,9 @@ pub fn load_stacked_config() -> StackedConfig {
         layer
     });
 
-    config
+    config_env
+        .resolve_config(&raw_config)
+        .map_err(|e| JjaiError::ConfigGet(e.to_string()))
 }
 
 fn find_workspace_dir() -> Result<std::path::PathBuf, JjaiError> {

@@ -10,6 +10,7 @@ path = "src/bin/jj-ai-setup.rs"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 jj-lib = { git = "https://github.com/jj-vcs/jj.git", package = "jj-lib" }
+jj-cli = { git = "https://github.com/jj-vcs/jj.git", package = "jj-cli", default-features = false }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
 orpheus = "0.1"
 anyhow = "1.0"
@@ -19,8 +20,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-etcetera = "0.8"
-dirs = "6"
+
 futures = "0.3"
 bstr = "1.0"
 tokio-util = { version = "0.7", features = ["compat"] }
