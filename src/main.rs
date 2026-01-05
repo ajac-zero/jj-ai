@@ -67,15 +67,19 @@ async fn main() -> ExitCode {
         Command::Describe { revision, dry_run } => {
             match jj_ai::command::run_describe(ctx, &revision, dry_run).await {
                 Ok(result) => {
-                    if result.description.is_empty() {
-                        eprintln!("No changes in commit, nothing to describe");
+                    if result.described.is_empty() {
+                        eprintln!("No changes in commits, nothing to describe");
                         return ExitCode::SUCCESS;
                     }
 
                     if dry_run {
-                        println!("{}", result.description);
+                        for item in &result.described {
+                            println!("--- {} ---", &item.commit_id[..12]);
+                            println!("{}", item.description);
+                            println!();
+                        }
                     } else {
-                        eprintln!("Generated description for commit");
+                        eprintln!("Generated descriptions for {} commit(s)", result.described.len());
                     }
                     ExitCode::SUCCESS
                 }

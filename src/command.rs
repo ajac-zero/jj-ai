@@ -59,7 +59,18 @@ impl CommandContext {
     }
 
     pub fn resolve_revision(&self, revision: &str) -> Result<jj_lib::commit::Commit, JjaiError> {
-        resolve_revision(&self.repo, &self.workspace, revision)
+        let mut commits = self.resolve_revisions(revision)?;
+        if commits.len() > 1 {
+            return Err(JjaiError::RevisionResolve {
+                revision: revision.to_string(),
+                reason: format!("expected a single revision, got {}", commits.len()),
+            });
+        }
+        Ok(commits.remove(0))
+    }
+
+    pub fn resolve_revisions(&self, revision: &str) -> Result<Vec<jj_lib::commit::Commit>, JjaiError> {
+        resolve_revisions(&self.repo, &self.workspace, revision)
     }
 }
 
@@ -140,11 +151,11 @@ pub fn load_stacked_config() -> Result<StackedConfig, JjaiError> {
     Ok(config)
 }
 
-fn resolve_revision(
+fn resolve_revisions(
     repo: &Arc<jj_lib::repo::ReadonlyRepo>,
     workspace: &jj_lib::workspace::Workspace,
     revision: &str,
-) -> Result<jj_lib::commit::Commit, JjaiError> {
+) -> Result<Vec<jj_lib::commit::Commit>, JjaiError> {
     let workspace_id = workspace.workspace_name().to_owned();
 
     let expression = if revision == "@" {
@@ -170,14 +181,17 @@ fn resolve_revision(
             reason: e.to_string(),
         })?;
 
-    let commit_id = revset
+    let commits: Vec<_> = revset
         .iter()
         .commits(repo.store())
-        .next()
-        .ok_or_else(|| JjaiError::RevisionNotFound {
-            revision: revision.to_string(),
-        })?
+        .collect::<Result<_, _>>()
         .map_err(|e| JjaiError::CommitGet(e.to_string()))?;
 
-    Ok(commit_id)
+    if commits.is_empty() {
+        return Err(JjaiError::RevisionNotFound {
+            revision: revision.to_string(),
+        });
+    }
+
+    Ok(commits)
 }
