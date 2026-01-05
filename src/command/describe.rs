@@ -1,5 +1,6 @@
-use super::{load_jj_settings, find_workspace_dir, resolve_revision};
+use super::{load_stacked_config, resolve_revision, find_workspace_dir};
 
+use jj_lib::settings::UserSettings;
 use jj_lib::workspace::{default_working_copy_factories, DefaultWorkspaceLoaderFactory, WorkspaceLoaderFactory};
 use jj_lib::repo::StoreFactories;
 
@@ -14,12 +15,14 @@ pub struct DescribeResult {
 }
 
 pub async fn run_describe(
-    cfg: JjaiConfig,
     revision: &str,
     dry_run: bool,
 ) -> Result<DescribeResult, JjaiError> {
-    let settings = load_jj_settings()?;
+    let stacked_config = load_stacked_config();
     let workspace_dir = find_workspace_dir()?;
+    let cfg = JjaiConfig::from_stacked_config(&stacked_config, workspace_dir.clone())?;
+    let settings = UserSettings::from_config(stacked_config).map_err(|e| JjaiError::Settings(e.to_string()))?;
+
 
     let loader = DefaultWorkspaceLoaderFactory
         .create(&workspace_dir)

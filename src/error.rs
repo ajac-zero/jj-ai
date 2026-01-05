@@ -5,8 +5,11 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum JjaiError {
-    #[error("missing OPENROUTER_API_KEY environment variable")]
+    #[error("missing jj-ai.api-key in jj config")]
     MissingApiKey,
+
+    #[error("failed to read config: {0}")]
+    ConfigGet(String),
 
     #[error("LLM API request failed: {0}")]
     LlmApi(#[from] orpheus::Error),

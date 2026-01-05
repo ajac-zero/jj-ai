@@ -4,18 +4,16 @@ pub(crate) mod backprop;
 pub use describe::run_describe;
 pub use backprop::run_backprop;
 
-use std::path::{ PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use jj_lib::config::{ConfigSource, StackedConfig};
 use jj_lib::repo::Repo;
 use jj_lib::revset::{RevsetExpression, RevsetIteratorExt, SymbolResolverExtension};
-use jj_lib::settings::UserSettings;
 
 use crate::error::JjaiError;
 
-
-fn load_jj_settings() -> Result<UserSettings, JjaiError> {
+pub fn load_stacked_config() -> StackedConfig {
     let mut config = StackedConfig::with_defaults();
 
     if let Some(home) = dirs::home_dir() {
@@ -46,7 +44,23 @@ fn load_jj_settings() -> Result<UserSettings, JjaiError> {
         }
     }
 
-    UserSettings::from_config(config).map_err(|e| JjaiError::Settings(e.to_string()))
+    config.add_layer({
+        let mut layer = jj_lib::config::ConfigLayer::empty(ConfigSource::EnvOverrides);
+
+        if let Ok(value) = std::env::var("OPENROUTER_API_KEY") {
+            let _ = layer.set_value("jj-ai.api-key", value);
+        }
+        if let Ok(value) = std::env::var("JJAI_MODEL") {
+            let _ = layer.set_value("jj-ai.model", value);
+        }
+        if let Ok(Ok(value)) = std::env::var("JJAI_MAX_TOKENS").map(|s| s.parse::<i64>()) {
+            let _ = layer.set_value("jj-ai.max-tokens", value);
+        }
+
+        layer
+    });
+
+    config
 }
 
 fn find_workspace_dir() -> Result<std::path::PathBuf, JjaiError> {

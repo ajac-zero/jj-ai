@@ -1,25 +1,34 @@
 use crate::error::JjaiError;
-use std::{env, str::FromStr};
+use jj_lib::config::{ConfigGetResultExt, StackedConfig};
+use std::path::PathBuf;
 
 pub struct JjaiConfig {
     api_key: String,
     model: String,
     max_tokens: u16,
-    workspace_root: String
+    workspace_root: PathBuf,
 }
 
 impl JjaiConfig {
-    pub fn from_env() -> Result<Self, JjaiError> {
-        let api_key = env::var("OPENROUTER_API_KEY").map_err(|_| JjaiError::MissingApiKey)?;
+    pub fn from_stacked_config(
+        config: &StackedConfig,
+        workspace_root: PathBuf,
+    ) -> Result<Self, JjaiError> {
+        let api_key: String = config
+            .get("jj-ai.api-key")
+            .map_err(|_| JjaiError::MissingApiKey)?;
 
-        let model = env::var("JJAI_MODEL").unwrap_or_else(|_| "minimax/minimax-m2.1".to_string());
+        let model: String = config
+            .get("jj-ai.model")
+            .optional()
+            .map_err(|e| JjaiError::ConfigGet(e.to_string()))?
+            .unwrap_or_else(|| "openai/gpt-4o-mini".to_string());
 
-        let max_tokens = env::var("JJAI_MAX_TOKENS")
-            .ok()
-            .and_then(|v| v.parse().ok())
+        let max_tokens: u16 = config
+            .get("jj-ai.max-tokens")
+            .optional()
+            .map_err(|e| JjaiError::ConfigGet(e.to_string()))?
             .unwrap_or(8000);
-
-        let workspace_root = std::env::var("JJ_WORKSPACE_ROOT").map_err(|_| JjaiError::MissingJjWorkspace)?;
 
         Ok(Self {
             api_key,
@@ -41,7 +50,7 @@ impl JjaiConfig {
         self.max_tokens.into()
     }
 
-    pub fn get_workspace_root(&self) -> std::path::PathBuf {
-        std::path::PathBuf::from_str(&self.workspace_root).expect("valid path")
+    pub fn get_workspace_root(&self) -> &PathBuf {
+        &self.workspace_root
     }
 }

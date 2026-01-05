@@ -1,7 +1,8 @@
-use super::{load_jj_settings, resolve_revision, find_workspace_dir};
+use super::{load_stacked_config, resolve_revision, find_workspace_dir};
 
 use jj_lib::object_id::ObjectId;
 use jj_lib::repo::Repo;
+use jj_lib::settings::UserSettings;
 use jj_lib::workspace::{default_working_copy_factories, DefaultWorkspaceLoaderFactory, WorkspaceLoaderFactory};
 use jj_lib::repo::StoreFactories;
 
@@ -10,18 +11,15 @@ use crate::diff::render_commit_patch;
 use crate::error::JjaiError;
 use crate::llm::generate_description_for_diff;
 
-
-
-
 pub async fn run_backprop(
-    cfg: JjaiConfig,
     revision: &str,
     dry_run: bool,
     limit: Option<usize>,
 ) -> Result<usize, JjaiError> {
-    let settings = load_jj_settings()?;
-
+    let stacked_config = load_stacked_config();
     let workspace_dir = find_workspace_dir()?;
+    let cfg = JjaiConfig::from_stacked_config(&stacked_config, workspace_dir.clone())?;
+    let settings = UserSettings::from_config(stacked_config).map_err(|e| JjaiError::Settings(e.to_string()))?;
     let loader = DefaultWorkspaceLoaderFactory
         .create(&workspace_dir)
         .map_err(|e| JjaiError::WorkspaceOpen {

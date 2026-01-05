@@ -1,7 +1,6 @@
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use jj_ai::config::JjaiConfig;
 
 #[derive(Parser)]
 #[command(name = "jj-ai")]
@@ -42,13 +41,10 @@ enum Command {
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = Args::parse();
-    let cfg = JjaiConfig::from_env().map_err(|e| {
-        println!("{e}")
-    }).unwrap();
 
     match args.command {
         Command::Describe { revision, dry_run } => {
-            match jj_ai::command::run_describe(cfg, &revision, dry_run).await {
+            match jj_ai::command::run_describe(&revision, dry_run).await {
                 Ok(result) => {
                     if result.description.is_empty() {
                         eprintln!("No changes in commit, nothing to describe");
@@ -69,7 +65,7 @@ async fn main() -> ExitCode {
             }
         }
         Command::Backprop { revision, dry_run, limit } => {
-            match jj_ai::command::run_backprop(cfg, &revision, dry_run, limit).await {
+            match jj_ai::command::run_backprop(&revision, dry_run, limit).await {
                 Ok(count) => {
                     if count == 0 {
                         eprintln!("No commits with empty descriptions found");
