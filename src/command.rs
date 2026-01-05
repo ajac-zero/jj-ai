@@ -4,25 +4,75 @@ pub(crate) mod backprop;
 pub use describe::run_describe;
 pub use backprop::run_backprop;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use jj_lib::config::{ConfigSource, StackedConfig};
+use jj_lib::config::{ConfigLayer, ConfigSource, StackedConfig};
 use jj_lib::repo::Repo;
 use jj_lib::revset::{RevsetExpression, RevsetIteratorExt, SymbolResolverExtension};
-use jj_cli::config::{config_from_environment, default_config_layers, ConfigEnv};
 
 use crate::error::JjaiError;
 
+fn discover_user_config_paths() -> Vec<PathBuf> {
+    if let Ok(jj_config) = std::env::var("JJ_CONFIG") {
+        return std::env::split_paths(&jj_config)
+            .filter(|p| !p.as_os_str().is_empty())
+            .collect();
+    }
+
+    let mut paths = Vec::new();
+
+    let home_config = dirs::home_dir().map(|h| h.join(".jjconfig.toml"));
+    let platform_config = dirs::config_dir().map(|c| c.join("jj").join("config.toml"));
+
+    if let Some(ref path) = home_config {
+        if path.exists() || platform_config.is_none() {
+            paths.push(path.clone());
+        }
+    }
+
+    if let Some(path) = platform_config {
+        paths.push(path);
+    }
+
+    paths
+}
+
 pub fn load_stacked_config() -> Result<StackedConfig, JjaiError> {
-    let config_env = ConfigEnv::from_environment();
-    let mut raw_config = config_from_environment(default_config_layers());
+    let mut config = StackedConfig::with_defaults();
 
-    config_env
-        .reload_user_config(&mut raw_config)
-        .map_err(|e| JjaiError::ConfigGet(e.to_string()))?;
+    // User config (lowest priority)
+    for path in discover_user_config_paths() {
+        if path.exists() {
+            let layer = ConfigLayer::load_from_file(ConfigSource::User, path)
+                .map_err(|e| JjaiError::ConfigGet(e.to_string()))?;
+            config.add_layer(layer);
+        }
+    }
 
-    raw_config.as_mut().add_layer({
-        let mut layer = jj_lib::config::ConfigLayer::empty(ConfigSource::EnvOverrides);
+    // Repo config (overrides user config)
+    if let Ok(workspace_root) = std::env::var("JJ_WORKSPACE_ROOT") {
+        let workspace_root = PathBuf::from(&workspace_root);
+
+        let repo_config = workspace_root.join(".jj/repo/config.toml");
+        if repo_config.exists() {
+            let layer = ConfigLayer::load_from_file(ConfigSource::Repo, repo_config)
+                .map_err(|e| JjaiError::ConfigGet(e.to_string()))?;
+            config.add_layer(layer);
+        }
+
+        // Workspace config (overrides repo config)
+        let workspace_config = workspace_root.join(".jj/workspace-config.toml");
+        if workspace_config.exists() {
+            let layer = ConfigLayer::load_from_file(ConfigSource::Workspace, workspace_config)
+                .map_err(|e| JjaiError::ConfigGet(e.to_string()))?;
+            config.add_layer(layer);
+        }
+    }
+
+    // Env overrides (highest priority)
+    config.add_layer({
+        let mut layer = ConfigLayer::empty(ConfigSource::EnvOverrides);
 
         if let Ok(value) = std::env::var("OPENROUTER_API_KEY") {
             let _ = layer.set_value("jj-ai.api-key", value);
@@ -37,9 +87,7 @@ pub fn load_stacked_config() -> Result<StackedConfig, JjaiError> {
         layer
     });
 
-    config_env
-        .resolve_config(&raw_config)
-        .map_err(|e| JjaiError::ConfigGet(e.to_string()))
+    Ok(config)
 }
 
 fn find_workspace_dir() -> Result<std::path::PathBuf, JjaiError> {
