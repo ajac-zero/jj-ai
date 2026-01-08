@@ -1,54 +1,95 @@
-use serde::Deserialize;
-
 use crate::error::JjaiError;
-use jj_lib::config::StackedConfig;
+use jj_lib::{config::StackedConfig, };
+use walkdir::WalkDir;
 
-fn default_model() -> String {
-    "openai/gpt-4o-mini".to_string()
-}
 
-fn default_max_tokens() -> u16 {
-    8000
-}
+use std::path::{PathBuf};
 
-#[derive(Deserialize)]
-#[serde(rename_all = "kebab-case")]
-struct RawJjaiConfig {
-    api_key: Option<String>,
-    #[serde(default = "default_model")]
-    model: String,
-    #[serde(default = "default_max_tokens")]
-    max_tokens: u16,
-}
+use etcetera::{BaseStrategy};
+use jj_lib::config::{ConfigLayer, ConfigSource};
 
 pub struct JjaiConfig {
     api_key: String,
     model: String,
-    max_tokens: u16,
 }
 
 impl JjaiConfig {
-    pub fn from_stacked_config(config: &StackedConfig) -> Result<Self, JjaiError> {
-        let raw: RawJjaiConfig = config
-            .get("jj-ai")
-            .map_err(|e| JjaiError::ConfigGet(e.to_string()))?;
-
-        Ok(Self {
-            api_key: raw.api_key.ok_or(JjaiError::MissingApiKey)?,
-            model: raw.model,
-            max_tokens: raw.max_tokens,
-        })
-    }
-
-    pub fn get_api_key(&self) -> &str {
+    pub fn api_key(&self) -> &str {
         &self.api_key
     }
 
-    pub fn get_model(&self) -> &str {
+    pub fn model(&self) -> &str {
         &self.model
     }
+}
 
-    pub fn get_max_tokens(&self) -> usize {
-        self.max_tokens.into()
+impl TryFrom<&StackedConfig> for JjaiConfig {
+    type Error = JjaiError;
+
+    fn try_from(value: &StackedConfig) -> Result<Self, Self::Error> {
+        Ok(Self {
+            api_key: value.get("ai.api-key").map_err(|_| JjaiError::MissingApiKey)?,
+            model: value.get("ai.model").unwrap(),
+        })
     }
+}
+
+pub fn load_stacked_config(workspace_root: &PathBuf) -> Result<StackedConfig, JjaiError> {
+    let mut config = StackedConfig::with_defaults();
+    config.add_layer(env_base_layer());
+    config.extend_layers(user_layers());
+    config.extend_layers(workspace_layers(workspace_root));
+    config.add_layer(env_overrides_layer());
+    Ok(config)
+}
+
+fn env_base_layer() -> ConfigLayer {
+    let mut layer = ConfigLayer::empty(ConfigSource::EnvBase);
+    let _ = layer.set_value("ai.model", "openai/gpt-4o-mini");
+    layer
+}
+
+fn env_overrides_layer() -> ConfigLayer {
+    let mut layer = ConfigLayer::empty(ConfigSource::EnvOverrides);
+
+    if let Ok(value) = std::env::var("OPENROUTER_API_KEY") {
+        let _ = layer.set_value("ai.api-key", value);
+    }
+    if let Ok(value) = std::env::var("JJ_AI_MODEL") {
+        let _ = layer.set_value("ai.model", value);
+    }
+
+    layer
+}
+
+fn workspace_layers(workspace_root: &PathBuf) -> Vec<ConfigLayer> {
+    let mut layers = Vec::new();
+    layers.push(ConfigLayer::load_from_file(ConfigSource::Repo, workspace_root.join(".jj/repo/config.toml")).unwrap());
+    layers.push(ConfigLayer::load_from_file(ConfigSource::Workspace, workspace_root.join(".jj/workspace-config.toml")).unwrap());
+    layers
+}
+
+fn user_layers() -> Vec<ConfigLayer> {
+    let mut layers = Vec::new();
+    let strategy = etcetera::choose_base_strategy().unwrap();
+
+    let home_config = strategy.home_dir().join(".jjconfig.toml");
+    if home_config.exists() {
+        layers.push(ConfigLayer::load_from_file(ConfigSource::User, home_config).unwrap());
+    }
+
+    let platform_config = strategy.config_dir().join("jj/config.toml");
+    if platform_config.exists() {
+        layers.push(ConfigLayer::load_from_file(ConfigSource::User, platform_config).unwrap());
+    }
+
+    let config_dir = strategy.config_dir().join("jj/conf.d");
+    if config_dir.exists() && config_dir.is_dir() {
+        for config_file in WalkDir::new(config_dir).into_iter().filter_entry(|f| f.path().extension().is_some_and(|ext| ext == "toml")) {
+            let config_file_path = config_file.unwrap().into_path();
+            layers.push(ConfigLayer::load_from_file(ConfigSource::User, config_file_path).unwrap());
+        }
+    }
+
+    layers
 }

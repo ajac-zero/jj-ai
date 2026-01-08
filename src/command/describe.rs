@@ -1,6 +1,10 @@
+use std::sync::Arc;
+
 use super::CommandContext;
 
 use jj_lib::object_id::ObjectId;
+use jj_lib::repo::Repo;
+use jj_lib::revset::{RevsetExpression, RevsetIteratorExt, SymbolResolverExtension};
 
 use crate::diff::render_commit_patch;
 use crate::error::JjaiError;
@@ -21,7 +25,7 @@ pub async fn run_describe(
     revision: &str,
     dry_run: bool,
 ) -> Result<DescribeResult, JjaiError> {
-    let commits = ctx.resolve_revisions(revision)?;
+    let commits = resolve_revisions(&ctx.repo, &ctx.workspace, &revision)?;
 
     let mut described = Vec::new();
 
@@ -77,4 +81,49 @@ pub async fn run_describe(
         described,
         applied: true,
     })
+}
+
+fn resolve_revisions(
+    repo: &Arc<jj_lib::repo::ReadonlyRepo>,
+    workspace: &jj_lib::workspace::Workspace,
+    revision: &str,
+) -> Result<Vec<jj_lib::commit::Commit>, JjaiError> {
+    let workspace_id = workspace.workspace_name().to_owned();
+
+    let expression = if revision == "@" {
+        RevsetExpression::working_copy(workspace_id)
+    } else {
+        RevsetExpression::symbol(revision.to_string())
+    };
+
+    let extensions: &[Arc<dyn SymbolResolverExtension>] = &[];
+    let symbol_resolver = jj_lib::revset::SymbolResolver::new(repo.as_ref(), extensions);
+
+    let resolved = expression
+        .resolve_user_expression(repo.as_ref(), &symbol_resolver)
+        .map_err(|e| JjaiError::RevisionResolve {
+            revision: revision.to_string(),
+            reason: e.to_string(),
+        })?;
+
+    let revset = resolved
+        .evaluate(repo.as_ref())
+        .map_err(|e| JjaiError::RevisionResolve {
+            revision: revision.to_string(),
+            reason: e.to_string(),
+        })?;
+
+    let commits: Vec<_> = revset
+        .iter()
+        .commits(repo.store())
+        .collect::<Result<_, _>>()
+        .map_err(|e| JjaiError::CommitGet(e.to_string()))?;
+
+    if commits.is_empty() {
+        return Err(JjaiError::RevisionNotFound {
+            revision: revision.to_string(),
+        });
+    }
+
+    Ok(commits)
 }

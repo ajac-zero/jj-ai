@@ -16,22 +16,8 @@ struct MessageOutput {
     message: String,
 }
 
-pub(crate) fn truncate_diff(diff: &str, max_tokens: usize) -> String {
-    if diff.len() > max_tokens {
-        format!(
-            "{}...\n[diff truncated, {} more bytes]",
-            &diff[..max_tokens],
-            diff.len() - max_tokens
-        )
-    } else {
-        diff.to_string()
-    }
-}
-
 pub async fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Result<String, JjaiError> {
-    let truncated_diff = truncate_diff(diff, cfg.get_max_tokens());
-
-    let client = AsyncOrpheus::new(cfg.get_api_key());
+    let client = AsyncOrpheus::new(cfg.api_key());
 
     let message_format = Format::json("message")
         .with_schema(|schema| {
@@ -44,10 +30,9 @@ pub async fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Resu
     let response = client
         .chat([
             Message::system(SYSTEM_PROMPT),
-            Message::user(truncated_diff),
+            Message::user(diff),
         ])
-        .model(cfg.get_model())
-        .max_tokens(cfg.get_max_tokens() as i32)
+        .model(cfg.model())
         .response_format(message_format)
         .send()
         .await?

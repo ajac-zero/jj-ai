@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 jj-lib = { git = "https://github.com/jj-vcs/jj.git", package = "jj-lib" }
-dirs = "6"
+etcetera = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
 orpheus = "0.1"
 anyhow = "1.0"
@@ -20,3 +20,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures = "0.3"
 bstr = "1.0"
 tokio-util = { version = "0.7", features = ["compat"] }
+walkdir = "2.5.0"
