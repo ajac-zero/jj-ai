@@ -64,8 +64,17 @@ fn env_overrides_layer() -> ConfigLayer {
 
 fn workspace_layers(workspace_root: &PathBuf) -> Vec<ConfigLayer> {
     let mut layers = Vec::new();
-    layers.push(ConfigLayer::load_from_file(ConfigSource::Repo, workspace_root.join(".jj/repo/config.toml")).unwrap());
-    layers.push(ConfigLayer::load_from_file(ConfigSource::Workspace, workspace_root.join(".jj/workspace-config.toml")).unwrap());
+
+    let repo_config = workspace_root.join(".jj/repo/config.toml");
+    if repo_config.exists() {
+        layers.push(ConfigLayer::load_from_file(ConfigSource::Repo, repo_config).unwrap());
+    }
+
+    let workspace_config = workspace_root.join(".jj/workspace-config.toml");
+    if workspace_config.exists() {
+        layers.push(ConfigLayer::load_from_file(ConfigSource::Workspace, workspace_config).unwrap());
+    }
+
     layers
 }
 

@@ -1,10 +1,15 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::CommandContext;
 
 use jj_lib::object_id::ObjectId;
 use jj_lib::repo::Repo;
-use jj_lib::revset::{RevsetExpression, RevsetIteratorExt, SymbolResolverExtension};
+use jj_lib::repo_path::RepoPathUiConverter;
+use jj_lib::revset::{
+    self, RevsetAliasesMap, RevsetDiagnostics, RevsetExtensions, RevsetIteratorExt,
+    RevsetParseContext, RevsetWorkspaceContext, SymbolResolverExtension,
+};
 
 use crate::diff::render_commit_patch;
 use crate::error::JjaiError;
@@ -88,16 +93,37 @@ fn resolve_revisions(
     workspace: &jj_lib::workspace::Workspace,
     revision: &str,
 ) -> Result<Vec<jj_lib::commit::Commit>, JjaiError> {
-    let workspace_id = workspace.workspace_name().to_owned();
-
-    let expression = if revision == "@" {
-        RevsetExpression::working_copy(workspace_id)
-    } else {
-        RevsetExpression::symbol(revision.to_string())
+    let aliases_map = RevsetAliasesMap::new();
+    let extensions = RevsetExtensions::new();
+    let path_converter = RepoPathUiConverter::Fs {
+        cwd: std::env::current_dir().unwrap(),
+        base: workspace.workspace_root().to_owned(),
+    };
+    let workspace_ctx = RevsetWorkspaceContext {
+        path_converter: &path_converter,
+        workspace_name: workspace.workspace_name(),
+    };
+    let context = RevsetParseContext {
+        aliases_map: &aliases_map,
+        local_variables: HashMap::new(),
+        user_email: repo.settings().user_email(),
+        date_pattern_context: chrono::Utc::now().fixed_offset().into(),
+        default_ignored_remote: None,
+        use_glob_by_default: false,
+        extensions: &extensions,
+        workspace: Some(workspace_ctx),
     };
 
-    let extensions: &[Arc<dyn SymbolResolverExtension>] = &[];
-    let symbol_resolver = jj_lib::revset::SymbolResolver::new(repo.as_ref(), extensions);
+    let mut diagnostics = RevsetDiagnostics::new();
+    let expression = revset::parse(&mut diagnostics, revision, &context).map_err(|e| {
+        JjaiError::RevisionResolve {
+            revision: revision.to_string(),
+            reason: e.to_string(),
+        }
+    })?;
+
+    let symbol_extensions: &[Arc<dyn SymbolResolverExtension>] = &[];
+    let symbol_resolver = revset::SymbolResolver::new(repo.as_ref(), symbol_extensions);
 
     let resolved = expression
         .resolve_user_expression(repo.as_ref(), &symbol_resolver)
