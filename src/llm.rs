@@ -4,12 +4,17 @@ use crate::config::JjaiConfig;
 use crate::error::JjaiError;
 
 
-const SYSTEM_PROMPT: &str = r#"
-You are an assistant that writes concise, informative commit descriptions based on code diffs.
+fn build_system_prompt(cfg: &JjaiConfig) -> String {
+    format!(
+        r#"You are an assistant that writes concise, informative commit descriptions based on code diffs.
 Write a short summary (1-2 sentences) of what the changes do, followed by bullet points if there are multiple distinct changes.
 Be specific about what changed, not why. Do not include the commit hash or author information.
 Keep the description under 200 words.
-"#;
+
+{}"#,
+        cfg.standard().prompt_instructions()
+    )
+}
 
 #[derive(serde::Deserialize)]
 struct MessageOutput {
@@ -27,9 +32,11 @@ pub async fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Resu
         })
         .build();
 
+    let system_prompt = build_system_prompt(cfg);
+
     let response = client
         .chat([
-            Message::system(SYSTEM_PROMPT),
+            Message::system(system_prompt),
             Message::user(diff),
         ])
         .model(cfg.model())

@@ -4,14 +4,45 @@ use walkdir::WalkDir;
 
 
 use std::path::{PathBuf};
+use std::str::FromStr;
 
 use etcetera::{BaseStrategy};
 use jj_lib::config::{ConfigLayer, ConfigSource, ConfigValue};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CommitStandard {
+    #[default]
+    Semantic,
+}
+
+impl CommitStandard {
+    pub fn prompt_instructions(&self) -> &'static str {
+        match self {
+            CommitStandard::Semantic => {
+                "Follow the Semantic Commit format: <type>(<optional scope>): <description>\n\
+                 Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.\n\
+                 Example: feat(auth): add OAuth2 login support"
+            }
+        }
+    }
+}
+
+impl FromStr for CommitStandard {
+    type Err = JjaiError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "semantic" => Ok(CommitStandard::Semantic),
+            other => Err(JjaiError::InvalidStandard(other.to_string())),
+        }
+    }
+}
 
 pub struct JjaiConfig {
     api_key: String,
     model: String,
     ignore: Vec<String>,
+    standard: CommitStandard,
 }
 
 impl JjaiConfig {
@@ -26,16 +57,24 @@ impl JjaiConfig {
     pub fn ignore(&self) -> &[String] {
         &self.ignore
     }
+
+    pub fn standard(&self) -> CommitStandard {
+        self.standard
+    }
 }
 
 impl TryFrom<&StackedConfig> for JjaiConfig {
     type Error = JjaiError;
 
     fn try_from(value: &StackedConfig) -> Result<Self, Self::Error> {
+        let standard_str: String = value.get("ai.standard").unwrap_or_else(|_| "semantic".to_string());
+        let standard = standard_str.parse::<CommitStandard>()?;
+
         Ok(Self {
             api_key: value.get("ai.api-key").map_err(|_| JjaiError::MissingApiKey)?,
             model: value.get("ai.model").unwrap(),
             ignore: value.get("ai.ignore").unwrap_or_default(),
+            standard,
         })
     }
 }
@@ -54,6 +93,7 @@ fn env_base_layer() -> ConfigLayer {
     let _ = layer.set_value("ai.model", "openai/gpt-4o-mini");
     let ignore_array: ConfigValue = ["*.lock"].into_iter().collect();
     let _ = layer.set_value("ai.ignore", ignore_array);
+    let _ = layer.set_value("ai.standard", "semantic");
     layer
 }
 
