@@ -6,12 +6,7 @@ use crate::error::JjaiError;
 
 fn build_system_prompt(cfg: &JjaiConfig) -> String {
     format!(
-        r#"You are an assistant that writes concise, informative commit descriptions based on code diffs.
-Write a short summary (1-2 sentences) of what the changes do, followed by bullet points if there are multiple distinct changes.
-Be specific about what changed, not why. Do not include the commit hash or author information.
-Keep the description under 200 words.
-
-{}"#,
+        "You are an assistant that writes concise, informative commit messages based on code diffs.\n\n{}",
         cfg.standard().prompt_instructions()
     )
 }

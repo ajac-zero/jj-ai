@@ -12,6 +12,7 @@ use jj_lib::config::{ConfigLayer, ConfigSource, ConfigValue};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CommitStandard {
     #[default]
+    Generic,
     Semantic,
     Gitmoji,
     Jira,
@@ -20,6 +21,14 @@ pub enum CommitStandard {
 impl CommitStandard {
     pub fn prompt_instructions(&self) -> &'static str {
         match self {
+            CommitStandard::Generic => {
+                "Follow the 50/72 rule for commit messages:\n\
+                 - Subject line: max 50 characters, capitalized, no trailing period\n\
+                 - Use imperative mood (e.g., \"Add feature\" not \"Added feature\")\n\
+                 - Only include a body if it adds meaningful context about why the change was made\n\
+                 - Separate body from subject with a blank line, wrap at 72 characters\n\
+                 Example: Add OAuth2 login support"
+            }
             CommitStandard::Semantic => {
                 "Follow the Semantic Commit format: <type>(<optional scope>): <description>\n\
                  Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.\n\
@@ -58,6 +67,7 @@ impl FromStr for CommitStandard {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
+            "generic" => Ok(CommitStandard::Generic),
             "semantic" => Ok(CommitStandard::Semantic),
             "gitmoji" => Ok(CommitStandard::Gitmoji),
             "jira" => Ok(CommitStandard::Jira),
@@ -121,7 +131,7 @@ fn env_base_layer() -> ConfigLayer {
     let _ = layer.set_value("ai.model", "openai/gpt-4o-mini");
     let ignore_array: ConfigValue = ["*.lock"].into_iter().collect();
     let _ = layer.set_value("ai.ignore", ignore_array);
-    let _ = layer.set_value("ai.standard", "semantic");
+    let _ = layer.set_value("ai.standard", "generic");
     layer
 }
 
