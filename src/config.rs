@@ -13,7 +13,7 @@ use jj_lib::config::{ConfigLayer, ConfigSource, ConfigValue};
 pub enum CommitStandard {
     #[default]
     Generic,
-    Semantic,
+    Conventional,
     Gitmoji,
 }
 
@@ -28,8 +28,8 @@ impl CommitStandard {
                  - Separate body from subject with a blank line, wrap at 72 characters\n\
                  Example: Add OAuth2 login support"
             }
-            CommitStandard::Semantic => {
-                "Follow the Semantic Commit format: <type>(<optional scope>): <description>\n\
+            CommitStandard::Conventional => {
+                "Follow the Conventional Commits format: <type>(<optional scope>): <description>\n\
                  Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.\n\
                  Example: feat(auth): add OAuth2 login support"
             }
@@ -58,7 +58,7 @@ impl FromStr for CommitStandard {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "generic" => Ok(CommitStandard::Generic),
-            "semantic" => Ok(CommitStandard::Semantic),
+            "conventional" => Ok(CommitStandard::Conventional),
             "gitmoji" => Ok(CommitStandard::Gitmoji),
             other => Err(JjaiError::InvalidStandard(other.to_string())),
         }
@@ -94,7 +94,7 @@ impl TryFrom<&StackedConfig> for JjaiConfig {
     type Error = JjaiError;
 
     fn try_from(value: &StackedConfig) -> Result<Self, Self::Error> {
-        let standard_str: String = value.get("ai.standard").unwrap_or_else(|_| "semantic".to_string());
+        let standard_str: String = value.get("ai.standard").unwrap_or_else(|_| "conventional".to_string());
         let standard = standard_str.parse::<CommitStandard>()?;
 
         Ok(Self {

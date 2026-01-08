@@ -59,6 +59,6 @@ pub enum JjaiError {
     #[error("JJ_WORKSPACE_ROOT is missing")]
     MissingJjWorkspace,
 
-    #[error("invalid commit standard '{0}', expected one of: generic, semantic, gitmoji")]
+    #[error("invalid commit standard '{0}', expected one of: generic, conventional, gitmoji")]
     InvalidStandard(String),
 }
