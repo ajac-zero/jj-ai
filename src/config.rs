@@ -13,6 +13,8 @@ use jj_lib::config::{ConfigLayer, ConfigSource, ConfigValue};
 pub enum CommitStandard {
     #[default]
     Semantic,
+    Gitmoji,
+    Jira,
 }
 
 impl CommitStandard {
@@ -22,6 +24,30 @@ impl CommitStandard {
                 "Follow the Semantic Commit format: <type>(<optional scope>): <description>\n\
                  Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.\n\
                  Example: feat(auth): add OAuth2 login support"
+            }
+            CommitStandard::Gitmoji => {
+                "Follow the Gitmoji format: <emoji> <description>\n\
+                 Use specific emojis to represent the change's intent:\n\
+                 ✨ for a new feature\n\
+                 🐛 for a bug fix\n\
+                 📝 for documentation\n\
+                 ♻️ for refactoring code\n\
+                 🎨 for improving structure/format\n\
+                 ⚡️ for performance improvements\n\
+                 🔥 for removing code/files\n\
+                 🚀 for deploying stuff\n\
+                 ✅ for adding/updating tests\n\
+                 🔒 for security fixes\n\
+                 Example: ✨ add OAuth2 login support"
+            }
+            CommitStandard::Jira => {
+                "Follow the Jira Smart Commits format: <ISSUE_KEY> #<COMMAND> <description>\n\
+                 Format: PROJ-123 #<command> <optional parameters>\n\
+                 Commands: comment, time, transition (e.g., resolve, close)\n\
+                 Examples:\n\
+                 PROJ-123 #comment Task completed early\n\
+                 PROJ-123 #time 1h 30m Fixed authentication bug\n\
+                 PROJ-123 #resolve Implemented login feature"
             }
         }
     }
@@ -33,6 +59,8 @@ impl FromStr for CommitStandard {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "semantic" => Ok(CommitStandard::Semantic),
+            "gitmoji" => Ok(CommitStandard::Gitmoji),
+            "jira" => Ok(CommitStandard::Jira),
             other => Err(JjaiError::InvalidStandard(other.to_string())),
         }
     }
