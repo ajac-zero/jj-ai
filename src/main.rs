@@ -22,6 +22,10 @@ enum Command {
         /// Show the generated description without applying it
         #[arg(long)]
         dry_run: bool,
+
+        /// Overwrite existing commit descriptions
+        #[arg(long)]
+        overwrite: bool,
     },
 }
 
@@ -38,11 +42,18 @@ async fn main() -> ExitCode {
     };
 
     match args.command {
-        Command::Describe { revision, dry_run } => {
-            match jj_ai::command::run_describe(ctx, &revision, dry_run).await {
+        Command::Describe { revision, dry_run, overwrite } => {
+            match jj_ai::command::run_describe(ctx, &revision, dry_run, overwrite).await {
                 Ok(result) => {
                     if result.described.is_empty() {
-                        eprintln!("No changes in commits, nothing to describe");
+                        if result.skipped_existing > 0 {
+                            eprintln!(
+                                "Skipped {} commit(s) with existing descriptions (use --overwrite to replace)",
+                                result.skipped_existing
+                            );
+                        } else {
+                            eprintln!("No changes in commits, nothing to describe");
+                        }
                         return ExitCode::SUCCESS;
                     }
 

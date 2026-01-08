@@ -23,18 +23,26 @@ pub struct DescribedCommit {
 pub struct DescribeResult {
     pub described: Vec<DescribedCommit>,
     pub applied: bool,
+    pub skipped_existing: usize,
 }
 
 pub async fn run_describe(
     ctx: CommandContext,
     revision: &str,
     dry_run: bool,
+    overwrite: bool,
 ) -> Result<DescribeResult, JjaiError> {
     let commits = resolve_revisions(&ctx.repo, &ctx.workspace, &revision)?;
 
     let mut described = Vec::new();
+    let mut skipped_existing = 0;
 
     for commit in &commits {
+        if !overwrite && !commit.description().trim().is_empty() {
+            skipped_existing += 1;
+            continue;
+        }
+
         let diff = render_commit_patch(ctx.repo.as_ref(), commit, ctx.cfg.ignore()).await?;
 
         if diff.trim().is_empty() {
@@ -53,6 +61,7 @@ pub async fn run_describe(
         return Ok(DescribeResult {
             described,
             applied: false,
+            skipped_existing,
         });
     }
 
@@ -85,6 +94,7 @@ pub async fn run_describe(
     Ok(DescribeResult {
         described,
         applied: true,
+        skipped_existing,
     })
 }
 
