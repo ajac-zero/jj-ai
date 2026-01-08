@@ -15,7 +15,6 @@ pub enum CommitStandard {
     Generic,
     Semantic,
     Gitmoji,
-    Jira,
 }
 
 impl CommitStandard {
@@ -49,15 +48,6 @@ impl CommitStandard {
                  🔒 for security fixes\n\
                  Example: ✨ add OAuth2 login support"
             }
-            CommitStandard::Jira => {
-                "Follow the Jira Smart Commits format: <ISSUE_KEY> #<COMMAND> <description>\n\
-                 Format: PROJ-123 #<command> <optional parameters>\n\
-                 Commands: comment, time, transition (e.g., resolve, close)\n\
-                 Examples:\n\
-                 PROJ-123 #comment Task completed early\n\
-                 PROJ-123 #time 1h 30m Fixed authentication bug\n\
-                 PROJ-123 #resolve Implemented login feature"
-            }
         }
     }
 }
@@ -70,7 +60,6 @@ impl FromStr for CommitStandard {
             "generic" => Ok(CommitStandard::Generic),
             "semantic" => Ok(CommitStandard::Semantic),
             "gitmoji" => Ok(CommitStandard::Gitmoji),
-            "jira" => Ok(CommitStandard::Jira),
             other => Err(JjaiError::InvalidStandard(other.to_string())),
         }
     }
