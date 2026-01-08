@@ -16,7 +16,7 @@ enum Command {
     /// Generate a commit description using an LLM
     Describe {
         /// The revision to describe
-        #[arg(default_value = "@")]
+        #[arg(short, long, default_value = "@")]
         revision: String,
 
         /// Show the generated description without applying it

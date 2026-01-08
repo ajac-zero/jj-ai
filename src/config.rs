@@ -6,11 +6,12 @@ use walkdir::WalkDir;
 use std::path::{PathBuf};
 
 use etcetera::{BaseStrategy};
-use jj_lib::config::{ConfigLayer, ConfigSource};
+use jj_lib::config::{ConfigLayer, ConfigSource, ConfigValue};
 
 pub struct JjaiConfig {
     api_key: String,
     model: String,
+    ignore: Vec<String>,
 }
 
 impl JjaiConfig {
@@ -21,6 +22,10 @@ impl JjaiConfig {
     pub fn model(&self) -> &str {
         &self.model
     }
+
+    pub fn ignore(&self) -> &[String] {
+        &self.ignore
+    }
 }
 
 impl TryFrom<&StackedConfig> for JjaiConfig {
@@ -30,6 +35,7 @@ impl TryFrom<&StackedConfig> for JjaiConfig {
         Ok(Self {
             api_key: value.get("ai.api-key").map_err(|_| JjaiError::MissingApiKey)?,
             model: value.get("ai.model").unwrap(),
+            ignore: value.get("ai.ignore").unwrap_or_default(),
         })
     }
 }
@@ -46,6 +52,8 @@ pub fn load_stacked_config(workspace_root: &PathBuf) -> Result<StackedConfig, Jj
 fn env_base_layer() -> ConfigLayer {
     let mut layer = ConfigLayer::empty(ConfigSource::EnvBase);
     let _ = layer.set_value("ai.model", "openai/gpt-4o-mini");
+    let ignore_array: ConfigValue = ["*.lock"].into_iter().collect();
+    let _ = layer.set_value("ai.ignore", ignore_array);
     layer
 }
 

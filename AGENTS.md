@@ -1,1 +1,1 @@
-Run tests with `cargo llvm-cov`
+Run checks after changes with `cargo check`

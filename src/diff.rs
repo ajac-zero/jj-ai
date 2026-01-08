@@ -1,5 +1,6 @@
 use bstr::{BStr, ByteSlice};
 use futures::StreamExt;
+use glob::Pattern;
 use jj_lib::backend::TreeValue;
 use jj_lib::commit::Commit;
 use jj_lib::diff_presentation::unified::{unified_diff_hunks, DiffLineType};
@@ -15,7 +16,16 @@ use crate::error::JjaiError;
 
 const CONTEXT_LINES: usize = 3;
 
-pub async fn render_commit_patch<R: Repo>(repo: &R, commit: &Commit) -> Result<String, JjaiError> {
+pub async fn render_commit_patch<R: Repo>(
+    repo: &R,
+    commit: &Commit,
+    ignore_patterns: &[String],
+) -> Result<String, JjaiError> {
+    let patterns: Vec<Pattern> = ignore_patterns
+        .iter()
+        .filter_map(|p| Pattern::new(p).ok())
+        .collect();
+
     let parents: Vec<_> = commit
         .parents()
         .collect::<Result<Vec<_>, _>>()
@@ -35,6 +45,10 @@ pub async fn render_commit_patch<R: Repo>(repo: &R, commit: &Commit) -> Result<S
     let entries: Vec<_> = diff_stream.collect().await;
 
     for entry in entries {
+        let path_str = entry.path.as_internal_file_string();
+        if patterns.iter().any(|p| p.matches(path_str)) {
+            continue;
+        }
         let path = entry.path;
         let diff_values = entry
             .values

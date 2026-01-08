@@ -35,7 +35,7 @@ pub async fn run_describe(
     let mut described = Vec::new();
 
     for commit in &commits {
-        let diff = render_commit_patch(ctx.repo.as_ref(), commit).await?;
+        let diff = render_commit_patch(ctx.repo.as_ref(), commit, ctx.cfg.ignore()).await?;
 
         if diff.trim().is_empty() {
             continue;
