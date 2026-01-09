@@ -17,6 +17,7 @@ use crate::llm::generate_description_for_diff;
 
 pub struct DescribedCommit {
     pub commit_id: String,
+    pub change_id: String,
     pub description: String,
 }
 
@@ -61,6 +62,7 @@ pub async fn run_describe(
 
         described.push(DescribedCommit {
             commit_id: commit.id().hex(),
+            change_id: commit.change_id().hex(),
             description,
         });
     }

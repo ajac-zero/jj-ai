@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use owo_colors::OwoColorize;
 use jj_ai::command::CommandContext;
 
 #[derive(Parser)]
@@ -53,7 +54,7 @@ async fn main() -> ExitCode {
                         if result.skipped_existing > 0 {
                             eprintln!(
                                 "Skipped {} commit(s) with existing descriptions (use --overwrite to replace)",
-                                result.skipped_existing
+                                result.skipped_existing.red()
                             );
                         } else {
                             eprintln!("No changes in commits, nothing to describe");
@@ -68,7 +69,12 @@ async fn main() -> ExitCode {
                             println!();
                         }
                     } else {
-                        eprintln!("Generated descriptions for {} commit(s)", result.described.len());
+                        eprintln!("Described {} commit(s):", result.described.len().green());
+                        for item in &result.described {
+                            let summary = item.description.lines().next().unwrap_or("");
+                            let short_id = &item.change_id[..8];
+                            eprintln!("  {}: {}", short_id.cyan(), summary);
+                        }
                     }
                     ExitCode::SUCCESS
                 }
