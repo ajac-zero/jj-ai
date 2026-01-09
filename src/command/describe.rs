@@ -12,6 +12,7 @@ use jj_lib::revset::{
 };
 
 use crate::diff::render_commit_patch;
+use crate::editor::edit_text;
 use crate::error::JjaiError;
 use crate::llm::generate_description_for_diff;
 
@@ -31,6 +32,7 @@ pub async fn run_describe(
     revision: &str,
     dry_run: bool,
     overwrite: bool,
+    editor: bool,
 ) -> Result<DescribeResult, JjaiError> {
     let commits = resolve_revisions(&ctx.repo, &ctx.workspace, &revision)?;
 
@@ -49,7 +51,14 @@ pub async fn run_describe(
             continue;
         }
 
-        let description = generate_description_for_diff(&ctx.cfg, &diff).await?;
+        let mut description = generate_description_for_diff(&ctx.cfg, &diff).await?;
+
+        if editor {
+            match edit_text(&description)? {
+                Some(edited) => description = edited,
+                None => continue,
+            }
+        }
 
         described.push(DescribedCommit {
             commit_id: commit.id().hex(),

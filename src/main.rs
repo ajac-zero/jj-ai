@@ -26,6 +26,10 @@ enum Command {
         /// Overwrite existing commit descriptions
         #[arg(long)]
         overwrite: bool,
+
+        /// Open the generated description in an editor before applying
+        #[arg(long)]
+        editor: bool,
     },
 }
 
@@ -42,8 +46,8 @@ async fn main() -> ExitCode {
     };
 
     match args.command {
-        Command::Describe { revision, dry_run, overwrite } => {
-            match jj_ai::command::run_describe(ctx, &revision, dry_run, overwrite).await {
+        Command::Describe { revision, dry_run, overwrite, editor } => {
+            match jj_ai::command::run_describe(ctx, &revision, dry_run, overwrite, editor).await {
                 Ok(result) => {
                     if result.described.is_empty() {
                         if result.skipped_existing > 0 {

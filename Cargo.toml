@@ -23,3 +23,4 @@ bstr = "1.0"
 tokio-util = { version = "0.7", features = ["compat"] }
 walkdir = "2.5.0"
 glob = "0.3"
+tempfile = "3"

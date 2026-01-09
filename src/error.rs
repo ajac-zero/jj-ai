@@ -61,4 +61,7 @@ pub enum JjaiError {
 
     #[error("invalid commit standard '{0}', expected one of: generic, conventional, gitmoji")]
     InvalidStandard(String),
+
+    #[error("editor failed: {0}")]
+    EditorFailed(String),
 }
