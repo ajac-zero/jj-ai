@@ -1,12 +1,11 @@
-use crate::error::JjaiError;
-use jj_lib::{config::StackedConfig, };
+use anyhow::{bail, Result};
+use jj_lib::config::StackedConfig;
 use walkdir::WalkDir;
 
-
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 
-use etcetera::{BaseStrategy};
+use etcetera::BaseStrategy;
 use jj_lib::config::{ConfigLayer, ConfigSource, ConfigValue};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -53,14 +52,14 @@ impl CommitStandard {
 }
 
 impl FromStr for CommitStandard {
-    type Err = JjaiError;
+    type Err = anyhow::Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "generic" => Ok(CommitStandard::Generic),
             "conventional" => Ok(CommitStandard::Conventional),
             "gitmoji" => Ok(CommitStandard::Gitmoji),
-            other => Err(JjaiError::InvalidStandard(other.to_string())),
+            other => bail!("invalid commit standard '{other}', expected one of: generic, conventional, gitmoji"),
         }
     }
 }
@@ -91,14 +90,18 @@ impl JjaiConfig {
 }
 
 impl TryFrom<&StackedConfig> for JjaiConfig {
-    type Error = JjaiError;
+    type Error = anyhow::Error;
 
-    fn try_from(value: &StackedConfig) -> Result<Self, Self::Error> {
-        let standard_str: String = value.get("ai.standard").unwrap_or_else(|_| "conventional".to_string());
+    fn try_from(value: &StackedConfig) -> Result<Self> {
+        let standard_str: String = value
+            .get("ai.standard")
+            .unwrap_or_else(|_| "conventional".to_string());
         let standard = standard_str.parse::<CommitStandard>()?;
 
         Ok(Self {
-            api_key: value.get("ai.api-key").map_err(|_| JjaiError::MissingApiKey)?,
+            api_key: value
+                .get("ai.api-key")
+                .map_err(|_| anyhow::anyhow!("missing ai.api-key in jj config"))?,
             model: value.get("ai.model").unwrap(),
             ignore: value.get("ai.ignore").unwrap_or_default(),
             standard,
@@ -106,7 +109,7 @@ impl TryFrom<&StackedConfig> for JjaiConfig {
     }
 }
 
-pub fn load_stacked_config(workspace_root: &PathBuf) -> Result<StackedConfig, JjaiError> {
+pub fn load_stacked_config(workspace_root: &PathBuf) -> Result<StackedConfig> {
     let mut config = StackedConfig::with_defaults();
     config.add_layer(env_base_layer());
     config.extend_layers(user_layers());
@@ -147,7 +150,9 @@ fn workspace_layers(workspace_root: &PathBuf) -> Vec<ConfigLayer> {
 
     let workspace_config = workspace_root.join(".jj/workspace-config.toml");
     if workspace_config.exists() {
-        layers.push(ConfigLayer::load_from_file(ConfigSource::Workspace, workspace_config).unwrap());
+        layers.push(
+            ConfigLayer::load_from_file(ConfigSource::Workspace, workspace_config).unwrap(),
+        );
     }
 
     layers
@@ -169,7 +174,10 @@ fn user_layers() -> Vec<ConfigLayer> {
 
     let config_dir = strategy.config_dir().join("jj/conf.d");
     if config_dir.exists() && config_dir.is_dir() {
-        for config_file in WalkDir::new(config_dir).into_iter().filter_entry(|f| f.path().extension().is_some_and(|ext| ext == "toml")) {
+        for config_file in WalkDir::new(config_dir)
+            .into_iter()
+            .filter_entry(|f| f.path().extension().is_some_and(|ext| ext == "toml"))
+        {
             let config_file_path = config_file.unwrap().into_path();
             layers.push(ConfigLayer::load_from_file(ConfigSource::User, config_file_path).unwrap());
         }

@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use bstr::{BStr, ByteSlice};
 use futures::StreamExt;
 use glob::Pattern;
@@ -12,15 +13,13 @@ use std::fmt::Write;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 
-use crate::error::JjaiError;
-
 const CONTEXT_LINES: usize = 3;
 
 pub async fn render_commit_patch<R: Repo>(
     repo: &R,
     commit: &Commit,
     ignore_patterns: &[String],
-) -> Result<String, JjaiError> {
+) -> Result<String> {
     let patterns: Vec<Pattern> = ignore_patterns
         .iter()
         .filter_map(|p| Pattern::new(p).ok())
@@ -29,7 +28,7 @@ pub async fn render_commit_patch<R: Repo>(
     let parents: Vec<_> = commit
         .parents()
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| JjaiError::Diff(e.to_string()))?;
+        .context("failed to load parents")?;
 
     let parent_tree = if parents.is_empty() {
         repo.store().empty_merged_tree()
@@ -50,9 +49,7 @@ pub async fn render_commit_patch<R: Repo>(
             continue;
         }
         let path = entry.path;
-        let diff_values = entry
-            .values
-            .map_err(|e| JjaiError::Diff(e.to_string()))?;
+        let diff_values = entry.values.context("failed to get diff values")?;
 
         writeln!(
             output,
@@ -60,7 +57,7 @@ pub async fn render_commit_patch<R: Repo>(
             path.as_internal_file_string(),
             path.as_internal_file_string()
         )
-        .map_err(|e| JjaiError::Diff(e.to_string()))?;
+        .context("failed to write diff header")?;
 
         let before_content = get_content(repo.store(), &diff_values.before).await?;
         let after_content = get_content(repo.store(), &diff_values.after).await?;
@@ -82,7 +79,7 @@ pub async fn render_commit_patch<R: Repo>(
                 "@@ -{},{} +{},{} @@",
                 left_start, left_len, right_start, right_len
             )
-            .map_err(|e| JjaiError::Diff(e.to_string()))?;
+            .context("failed to write hunk header")?;
 
             for (line_type, tokens) in &hunk.lines {
                 let prefix = match line_type {
@@ -97,7 +94,7 @@ pub async fn render_commit_patch<R: Repo>(
                     .collect();
 
                 write!(output, "{}{}", prefix, line_content)
-                    .map_err(|e| JjaiError::Diff(e.to_string()))?;
+                    .context("failed to write diff line")?;
             }
         }
     }
@@ -105,10 +102,7 @@ pub async fn render_commit_patch<R: Repo>(
     Ok(output)
 }
 
-async fn get_content(
-    store: &Arc<jj_lib::store::Store>,
-    value: &MergedTreeValue,
-) -> Result<String, JjaiError> {
+async fn get_content(store: &Arc<jj_lib::store::Store>, value: &MergedTreeValue) -> Result<String> {
     if value.is_absent() {
         return Ok(String::new());
     }
@@ -118,12 +112,12 @@ async fn get_content(
         let mut reader = store
             .read_file(&jj_lib::repo_path::RepoPath::root(), id)
             .await
-            .map_err(|e| JjaiError::Diff(e.to_string()))?;
+            .context("failed to read file content")?;
 
         let mut buf = Vec::new();
         AsyncReadExt::read_to_end(&mut reader, &mut buf)
             .await
-            .map_err(|e| JjaiError::Diff(e.to_string()))?;
+            .context("failed to read file bytes")?;
 
         Ok(String::from_utf8_lossy(&buf).to_string())
     } else {

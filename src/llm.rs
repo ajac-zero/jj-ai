@@ -1,8 +1,7 @@
+use anyhow::Result;
 use orpheus::prelude::*;
 
 use crate::config::JjaiConfig;
-use crate::error::JjaiError;
-
 
 fn build_system_prompt(cfg: &JjaiConfig) -> String {
     format!(
@@ -16,7 +15,7 @@ struct MessageOutput {
     message: String,
 }
 
-pub async fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Result<String, JjaiError> {
+pub async fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Result<String> {
     let client = AsyncOrpheus::new(cfg.api_key());
 
     let message_format = Format::json("message")
@@ -30,10 +29,7 @@ pub async fn generate_description_for_diff(cfg: &JjaiConfig, diff: &str) -> Resu
     let system_prompt = build_system_prompt(cfg);
 
     let response = client
-        .chat([
-            Message::system(system_prompt),
-            Message::user(diff),
-        ])
+        .chat([Message::system(system_prompt), Message::user(diff)])
         .model(cfg.model())
         .response_format(message_format)
         .send()

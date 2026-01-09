@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::CommandContext;
-
+use anyhow::{bail, Context, Result};
 use jj_lib::object_id::ObjectId;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::RepoPathUiConverter;
@@ -11,9 +10,9 @@ use jj_lib::revset::{
     RevsetParseContext, RevsetWorkspaceContext, SymbolResolverExtension,
 };
 
+use super::CommandContext;
 use crate::diff::render_commit_patch;
 use crate::editor::edit_text;
-use crate::error::JjaiError;
 use crate::llm::generate_description_for_diff;
 
 pub struct DescribedCommit {
@@ -33,8 +32,8 @@ pub async fn run_describe(
     dry_run: bool,
     overwrite: bool,
     editor: bool,
-) -> Result<DescribeResult, JjaiError> {
-    let commits = resolve_revisions(&ctx.repo, &ctx.workspace, &revision)?;
+) -> Result<DescribeResult> {
+    let commits = resolve_revisions(&ctx.repo, &ctx.workspace, revision)?;
 
     let mut described = Vec::new();
     let mut skipped_existing = 0;
@@ -87,7 +86,7 @@ pub async fn run_describe(
             .rewrite_commit(commit)
             .set_description(&item.description)
             .write()
-            .map_err(|e| JjaiError::CommitWrite(e.to_string()))?;
+            .context("failed to write commit")?;
 
         tx.repo_mut()
             .set_rewritten_commit(commit.id().clone(), new_commit.id().clone());
@@ -95,10 +94,10 @@ pub async fn run_describe(
 
     tx.repo_mut()
         .rebase_descendants()
-        .map_err(|e| JjaiError::RebaseDescendants(e.to_string()))?;
+        .context("failed to rebase descendants")?;
 
     tx.commit("ai describe")
-        .map_err(|e| JjaiError::TransactionCommit(e.to_string()))?;
+        .context("failed to commit transaction")?;
 
     Ok(DescribeResult {
         described,
@@ -111,7 +110,7 @@ fn resolve_revisions(
     repo: &Arc<jj_lib::repo::ReadonlyRepo>,
     workspace: &jj_lib::workspace::Workspace,
     revision: &str,
-) -> Result<Vec<jj_lib::commit::Commit>, JjaiError> {
+) -> Result<Vec<jj_lib::commit::Commit>> {
     let aliases_map = RevsetAliasesMap::new();
     let extensions = RevsetExtensions::new();
     let path_converter = RepoPathUiConverter::Fs {
@@ -134,40 +133,28 @@ fn resolve_revisions(
     };
 
     let mut diagnostics = RevsetDiagnostics::new();
-    let expression = revset::parse(&mut diagnostics, revision, &context).map_err(|e| {
-        JjaiError::RevisionResolve {
-            revision: revision.to_string(),
-            reason: e.to_string(),
-        }
-    })?;
+    let expression = revset::parse(&mut diagnostics, revision, &context)
+        .with_context(|| format!("failed to parse revision '{revision}'"))?;
 
     let symbol_extensions: &[Arc<dyn SymbolResolverExtension>] = &[];
     let symbol_resolver = revset::SymbolResolver::new(repo.as_ref(), symbol_extensions);
 
     let resolved = expression
         .resolve_user_expression(repo.as_ref(), &symbol_resolver)
-        .map_err(|e| JjaiError::RevisionResolve {
-            revision: revision.to_string(),
-            reason: e.to_string(),
-        })?;
+        .with_context(|| format!("failed to resolve revision '{revision}'"))?;
 
     let revset = resolved
         .evaluate(repo.as_ref())
-        .map_err(|e| JjaiError::RevisionResolve {
-            revision: revision.to_string(),
-            reason: e.to_string(),
-        })?;
+        .with_context(|| format!("failed to evaluate revision '{revision}'"))?;
 
     let commits: Vec<_> = revset
         .iter()
         .commits(repo.store())
         .collect::<Result<_, _>>()
-        .map_err(|e| JjaiError::CommitGet(e.to_string()))?;
+        .context("failed to get commits")?;
 
     if commits.is_empty() {
-        return Err(JjaiError::RevisionNotFound {
-            revision: revision.to_string(),
-        });
+        bail!("revision '{revision}' not found");
     }
 
     Ok(commits)

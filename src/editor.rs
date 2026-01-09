@@ -1,9 +1,9 @@
 use std::io::{Read, Write};
 use std::process::Command;
 
-use crate::error::JjaiError;
+use anyhow::{bail, Context, Result};
 
-pub fn edit_text(initial: &str) -> Result<Option<String>, JjaiError> {
+pub fn edit_text(initial: &str) -> Result<Option<String>> {
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
         .unwrap_or_else(|_| "vi".to_string());
@@ -12,30 +12,28 @@ pub fn edit_text(initial: &str) -> Result<Option<String>, JjaiError> {
         .prefix("jj-ai-")
         .suffix(".txt")
         .tempfile()
-        .map_err(|e| JjaiError::EditorFailed(format!("failed to create temp file: {e}")))?;
+        .context("failed to create temp file")?;
 
     temp_file
         .write_all(initial.as_bytes())
-        .map_err(|e| JjaiError::EditorFailed(format!("failed to write temp file: {e}")))?;
+        .context("failed to write temp file")?;
 
     let path = temp_file.path().to_owned();
 
     let status = Command::new(&editor)
         .arg(&path)
         .status()
-        .map_err(|e| JjaiError::EditorFailed(format!("failed to spawn editor '{editor}': {e}")))?;
+        .with_context(|| format!("failed to spawn editor '{editor}'"))?;
 
     if !status.success() {
-        return Err(JjaiError::EditorFailed(format!(
-            "editor exited with status: {status}"
-        )));
+        bail!("editor exited with status: {status}");
     }
 
     let mut content = String::new();
     std::fs::File::open(&path)
-        .map_err(|e| JjaiError::EditorFailed(format!("failed to read temp file: {e}")))?
+        .context("failed to open temp file")?
         .read_to_string(&mut content)
-        .map_err(|e| JjaiError::EditorFailed(format!("failed to read temp file: {e}")))?;
+        .context("failed to read temp file")?;
 
     let trimmed = content.trim();
     if trimmed.is_empty() {
