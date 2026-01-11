@@ -101,7 +101,7 @@ impl TryFrom<&StackedConfig> for JjaiConfig {
         Ok(Self {
             api_key: value
                 .get("ai.api-key")
-                .map_err(|_| anyhow::anyhow!("missing ai.api-key in jj config"))?,
+                .map_err(|_| anyhow::anyhow!("missing ai.api-key in jj config or OPENROUTER_API_KEY env var"))?,
             model: value.get("ai.model").unwrap(),
             ignore: value.get("ai.ignore").unwrap_or_default(),
             standard,
