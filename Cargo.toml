@@ -2,10 +2,12 @@
 name = "jj-ai"
 version = "0.1.0"
 edition = "2021"
+description = "AI-powered tools for jj version control"
+license = "MIT"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-jj-lib = { git = "https://github.com/jj-vcs/jj.git", package = "jj-lib" }
+jj-lib = "0.37.0"
 etcetera = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
 orpheus = "0.1"
